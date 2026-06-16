@@ -159,10 +159,10 @@ export function buildSearchUrl(template: string, query: string): string {
 
 /** The tool takes a list of queries — plural on purpose, to encourage covering a topic from several angles. */
 const searchParametersSchema = Type.Object({
-  searches: Type.Array(Type.Object({ query: Type.String({ description: "A search query." }) }), {
+  searches: Type.Array(Type.String(), {
     minItems: 1,
     description:
-      "One or more search queries to run together. Pass several at once to cover a topic from multiple angles in a single call.",
+      "One or more search queries to run together. Pass several queries at once to cover a topic from multiple angles in a single call.",
   }),
 });
 type SearchParameters = Static<typeof searchParametersSchema>;
@@ -369,7 +369,7 @@ export default function piSmartWebSearch(api: any) {
       "Search the web. Call this whenever current or external information would change your answer — " +
       "latest versions, APIs, prices, dates, events, or anything you can't verify from " +
       "memory. Returns ranked result pages to follow up on.",
-    promptSnippet: "web_search(searches[{query}]): batch web search; returns ranked result pages",
+    promptSnippet: "web_search(searches: string[]): batch web search; returns ranked result pages",
     promptGuidelines: [
       "Use web_search to find sources — pass several queries at once to cover a topic from multiple angles.",
     ],
@@ -396,8 +396,8 @@ export default function piSmartWebSearch(api: any) {
       const { searchUrlTemplate, maxCharsPerQuery } = loadSettings(ctx?.cwd ?? process.cwd());
 
       // Start every query as "queued"; we update each one as it runs.
-      const progressByQuery: QueryProgress[] = params.searches.map((search) => ({
-        query: search.query,
+      const progressByQuery: QueryProgress[] = params.searches.map((query) => ({
+        query: query,
         status: "queued",
         result: undefined,
       }));
@@ -409,12 +409,12 @@ export default function piSmartWebSearch(api: any) {
       await runWithConcurrencyLimit(
         params.searches,
         MAX_CONCURRENT_SEARCHES,
-        async (search, index) => {
+        async (query, index) => {
           progressByQuery[index].status = "loading";
           reportProgress();
 
           progressByQuery[index].result = await fetchReadablePage(
-            buildSearchUrl(searchUrlTemplate, search.query),
+            buildSearchUrl(searchUrlTemplate, query),
           );
           progressByQuery[index].status = progressByQuery[index].result!.ok ? "done" : "error";
           reportProgress();
