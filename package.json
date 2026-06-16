@@ -7,6 +7,7 @@
   "dependencies": {
     "defuddle": "^0.18.1",
     "linkedom": "^0.18.12",
+    "typebox": "^1.2.12",
     "wreq-js": "^2.3.1"
   },
   "peerDependencies": {
@@ -14,7 +15,6 @@
     "pi-smart-fetch": "*"
   },
   "devDependencies": {
-    "tsx": "^4.22.4",
-    "typebox": "^1.2.12"
+    "tsx": "^4.22.4"
   }
 }
