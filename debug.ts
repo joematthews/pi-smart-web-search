@@ -10,8 +10,8 @@
 import {
   DEFAULT_SEARCH_URL_TEMPLATE,
   buildSearchUrl,
+  cleanSearchResultLinks,
   fetchReadablePage,
-  parseDuckDuckGoLinks,
 } from "./index.ts";
 
 const query = process.argv.slice(2).join(" ").trim();
@@ -29,7 +29,9 @@ if (!page.ok) {
   process.exit(1);
 }
 
-const markdown = parseDuckDuckGoLinks(page.readableText);
+// Run the same per-engine dispatcher the extension uses, so debug matches real behavior:
+// DDG links get unwrapped, a non-DDG engine correctly gets no parser.
+const markdown = cleanSearchResultLinks(page.readableText, DEFAULT_SEARCH_URL_TEMPLATE);
 
 // Flag any DuckDuckGo redirect links that slipped through the cleanup.
 const leftovers =

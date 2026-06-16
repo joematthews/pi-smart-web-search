@@ -179,11 +179,11 @@ type QueryProgress = {
  * search results (links + snippets) and what to do next: open the best ones, then answer.
  */
 const FOLLOW_UP_INSTRUCTIONS = [
-  "# Next step: read the best results",
+  "# Next step: evaluate the results",
   "",
-  "These are search results — to answer well, open the most relevant pages; don't rely on snippets alone.",
-  "1. Review the results below and choose the most relevant URLs.",
-  "2. Call batch_web_fetch on those URLs to read the full pages.",
+  "These are previews — brief, and sometimes out of date. If they don't fully answer your question, read the full pages:",
+  "1. Choose the most relevant URLs below.",
+  "2. Use the batch_web_fetch tool to fetch those pages.",
   "3. Answer from what you read.",
   "",
 ].join("\n");
@@ -195,7 +195,7 @@ const FOLLOW_UP_INSTRUCTIONS = [
  * single shared regex — so we dispatch to a per-engine parser keyed off the search URL. Engines we
  * don't have a parser for fall through unchanged (raw links shown as-is).
  */
-function cleanSearchResultLinks(markdown: string, searchUrlTemplate: string): string {
+export function cleanSearchResultLinks(markdown: string, searchUrlTemplate: string): string {
   if (searchUrlTemplate.includes("duckduckgo.com")) {
     return parseDuckDuckGoLinks(markdown);
   }
@@ -355,7 +355,7 @@ async function runWithConcurrencyLimit<Item, Result>(
 }
 
 /** Run at most this many query fetches at once. */
-const MAX_CONCURRENT_SEARCHES = 5;
+const MAX_CONCURRENT_SEARCHES = 1;
 
 // =============================================================================
 // 6. Tool registration
