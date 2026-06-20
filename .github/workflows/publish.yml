@@ -15,6 +15,7 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: release # scoped to the protected 'release' env (tags only; blocks PR runs)
     env:
       HUSKY: "0" # skip git-hook setup in CI
     steps:
