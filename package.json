@@ -16,7 +16,7 @@
     "type": "git",
     "url": "git+https://github.com/joematthews/pi-smart-web-search.git"
   },
-  "homepage": "https://github.com/joematthews/pi-smart-web-search#readme",
+  "homepage": "https://pi.dev/packages/pi-smart-web-search",
   "bugs": {
     "url": "https://github.com/joematthews/pi-smart-web-search/issues"
   },
