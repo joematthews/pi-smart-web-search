@@ -53,16 +53,16 @@ Pass several queries at once to cover a topic from multiple angles in one call.
 Nested under a `smartWebSearch` object in `~/.pi/agent/settings.json` (or a project's
 `.pi/settings.json`, which overrides):
 
-| key         | default                                       | meaning                                                                                                                                                                                       |
-| ----------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `searchUrl` | `https://html.duckduckgo.com/html/?q={query}` | Search URL template. Must contain `{query}` (URL-encoded substitution). Swap to another engine here. Engine also selects the result-link parser — see [Result links](#result-links).          |
-| `maxChars`  | `10000`                                       | Safety cap on extracted result text **per query**. A DDG page profiles at ~6.4k–7.9k chars; 10000 is the max + ~25% — won't truncate DDG, catches a runaway engine when you swap `searchUrl`. |
+| key         | default      | meaning                                                                                                                                                                                                                                |
+| ----------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `searchUrl` | _(built-in)_ | Search URL template; must contain `{query}` (URL-encoded). Defaults to a no-JavaScript HTML search endpoint. Point it at another engine to switch — the engine also selects the result-link parser, see [Result links](#result-links). |
+| `maxChars`  | `10000`      | Safety cap on extracted result text **per query**. A results page profiles at ~6.4k–7.9k chars, so 10000 (the max + ~25%) won't truncate it, and guards against a larger engine when you change `searchUrl`.                           |
 
 ```jsonc
 // ~/.pi/agent/settings.json
 {
   "smartWebSearch": {
-    "searchUrl": "https://html.duckduckgo.com/html/?q={query}",
+    "searchUrl": "https://example.com/search?q={query}",
     "maxChars": 10000,
   },
 }
@@ -70,20 +70,14 @@ Nested under a `smartWebSearch` object in `~/.pi/agent/settings.json` (or a proj
 
 ## Result links
 
-Search engines rarely link straight to results — DDG wraps every link in a tracking redirect
-(`//duckduckgo.com/l/?uddg=<real-url>&rut=…`), with the real destination percent-encoded inside. Left
-raw, the model can't tell where a link goes without fetching it, so it tends to skip the results and
-answer from snippets alone.
+Search engines often wrap result links in tracking redirects that hide the real destination, so the
+model can't tell where a link goes without fetching it. After extraction, the extension rewrites
+those links back to their real URLs.
 
-So after extraction, the markdown runs through a **per-engine link parser** that rewrites those
-wrapped links back to their real URLs. The parser is **chosen by the `searchUrl`**:
+The unwrap is chosen by your `searchUrl`: the built-in engine is handled automatically; other engines
+pass through unchanged (add a parser in `index.ts` if you switch engines and want clean links).
 
-- `searchUrl` contains `duckduckgo.com` → the DDG parser unwraps `uddg=` redirects.
-- **Any other engine → no parser runs; links are shown raw.** The regex is too engine-specific to
-  share, so each engine needs its own parser. Add one in `index.ts` (`parseXLinks` + a branch in
-  `cleanSearchResultLinks`) if you swap `searchUrl` to a non-DDG engine and want clean links.
-
-Inspect what a query actually returns — markdown to stdout, a link-cleanliness check to stderr:
+Inspect what a query returns:
 
 ```sh
 npx tsx debug.ts "your search query"
@@ -91,9 +85,9 @@ npx tsx debug.ts "your search query"
 
 ## Notes
 
-- **Search engine must be no-JS / server-rendered** to extract well. The DDG HTML endpoint
-  works because it renders without JavaScript; `google.com` and other JS-heavy SERPs will extract
-  poorly (the pipeline does not run JavaScript).
+- **Search engine must be no-JS / server-rendered** to extract well. The default endpoint renders
+  without JavaScript; `google.com` and other JS-heavy SERPs extract poorly (the pipeline does not run
+  JavaScript).
 - Built on the same primitives as pi-smart-fetch (`wreq-js` browser-grade TLS, `Defuddle`
   extraction); it does not import pi-smart-fetch's code (factory-only export), only the shared libs.
 
