@@ -87,6 +87,7 @@
   "pi": {
     "extensions": [
       "./index.ts"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/joematthews/pi-smart-web-search/main/demo.png"
   }
 }
