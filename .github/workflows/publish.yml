@@ -1,0 +1,31 @@
+name: Publish
+
+# Publishes to npm when a GitHub Release is published. Uses npm trusted
+# publishing — no NPM_TOKEN is needed, and provenance is attached automatically.
+# Publishes whatever version is in package.json, so bump it (and tag to match)
+# before cutting the release.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write # required for npm trusted publishing
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      HUSKY: "0" # skip git-hook setup in CI
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - run: npm install -g npm@latest # ensure npm is new enough for trusted publishing
+      - run: npm ci
+      - run: npm run check # typecheck, lint, format, spell, tests
+      - run: npm publish --access public
