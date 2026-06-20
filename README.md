@@ -4,7 +4,7 @@ A [pi](https://pi.dev) extension that adds one tool — **`web_search`** — for
 
 ![web_search in pi — search, fetch, answer](https://raw.githubusercontent.com/joematthews/pi-smart-web-search/main/demo.png)
 
-It takes an **array of queries** (batch-only, like `batch_web_fetch`), turns each into a search URL,
+It takes an **array of queries**, turns each into a search URL,
 and runs it through the same fetch→extract pipeline as [pi-smart-fetch](https://pi.dev/packages/pi-smart-fetch) (`wreq-js` → `linkedom` →
 `Defuddle`). It returns the extracted search-results pages (titles, links, snippets as markdown),
 prefaced with a `# Next step` header telling the model to open the best result URLs.
