@@ -64,13 +64,10 @@ Run from a local clone instead of the registry:
 git clone https://github.com/joematthews/pi-smart-web-search
 cd pi-smart-web-search
 npm install
+pi install .
 ```
 
-Point pi at the clone in `~/.pi/agent/settings.json`:
-
-```jsonc
-"packages": ["/absolute/path/to/pi-smart-web-search", "npm:pi-smart-fetch"]
-```
+Then restart pi.
 
 `npm run check` runs typecheck, lint, format, spell, and tests.
 `npx tsx debug.ts "your query"` prints what the model would receive for a search.
