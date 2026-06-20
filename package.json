@@ -38,7 +38,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "spell": "cspell --no-progress \"**/*\"",
-    "check": "npm run typecheck && npm run lint && npm run format:check && npm run spell",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run spell && npm run test",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -73,7 +75,8 @@
     "prettier": "^3.8.4",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.61.1"
+    "typescript-eslint": "^8.61.1",
+    "vitest": "^4.1.9"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
