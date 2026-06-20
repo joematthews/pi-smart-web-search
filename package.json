@@ -1,6 +1,6 @@
 {
   "name": "pi-smart-web-search",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Batch web search for the Pi coding agent — ranked, readable results ready to fetch. Pairs with pi-smart-fetch.",
   "keywords": [
     "pi-package",
