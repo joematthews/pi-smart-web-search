@@ -78,10 +78,7 @@ Point pi at the clone in `~/.pi/agent/settings.json`:
 ## Credits
 
 Heavily inspired by [pi-smart-fetch](https://pi.dev/packages/pi-smart-fetch) by
-[Thinkscape](https://github.com/Thinkscape) (MIT). `web_search` is an independent implementation —
-no code is copied — but it follows pi-smart-fetch's approach, shares its underlying pipeline
-(`wreq-js` → `linkedom` → `Defuddle`), and its result card mirrors `batch_web_fetch`'s look. Thanks
-to that project for the pattern.
+[Thinkscape](https://github.com/Thinkscape) (MIT). It shares the same pipeline (`wreq-js` → `linkedom` → `Defuddle`), and the `web_search` result card mirrors `batch_web_fetch`'s look. Thanks to that project for the pattern.
 
 ## License
 
