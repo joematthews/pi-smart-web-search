@@ -3,7 +3,7 @@
 A [pi](https://pi.dev) extension that adds one tool — **`web_search`** — for batch web discovery.
 
 It takes an **array of queries** (batch-only, like `batch_web_fetch`), turns each into a search URL,
-and runs it through the same fetch→extract pipeline as pi-smart-fetch (`wreq-js` → `linkedom` →
+and runs it through the same fetch→extract pipeline as [pi-smart-fetch](https://pi.dev/packages/pi-smart-fetch) (`wreq-js` → `linkedom` →
 `Defuddle`). It returns the extracted search-results pages (titles, links, snippets as markdown),
 prefaced with a `# Next step` header telling the model to open the best result URLs.
 
@@ -22,7 +22,7 @@ Then restart pi.
 ### Pairs with pi-smart-fetch
 
 `web_search` finds sources; it hands off to **`batch_web_fetch`** (from
-[`pi-smart-fetch`](https://www.npmjs.com/package/pi-smart-fetch)) to read the chosen pages. Install
+[`pi-smart-fetch`](https://pi.dev/packages/pi-smart-fetch)) to read the chosen pages. Install
 it alongside, or the model has nothing to follow up with.
 
 ## Usage
@@ -117,7 +117,7 @@ Point pi at the clone in `~/.pi/agent/settings.json`:
 
 ## Credits
 
-Heavily inspired by [pi-smart-fetch](https://www.npmjs.com/package/pi-smart-fetch) by
+Heavily inspired by [pi-smart-fetch](https://pi.dev/packages/pi-smart-fetch) by
 [Thinkscape](https://github.com/Thinkscape) (MIT). `web_search` is an independent implementation —
 no code is copied — but it follows pi-smart-fetch's approach, shares its underlying pipeline
 (`wreq-js` → `linkedom` → `Defuddle`), and its result card mirrors `batch_web_fetch`'s look. Thanks
