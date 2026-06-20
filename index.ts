@@ -183,7 +183,7 @@ const FOLLOW_UP_INSTRUCTIONS = [
   "",
   "These are previews — brief, and sometimes out of date. If they don't fully answer your question, read the full pages:",
   "1. Choose the most relevant URLs below.",
-  "2. Use the batch_web_fetch tool to fetch those pages.",
+  "2. Use the `batch_web_fetch` tool to fetch those pages.",
   "3. Answer from what you read.",
   "",
 ].join("\n");
@@ -371,7 +371,7 @@ export default function piSmartWebSearch(api: any) {
       "memory. Returns ranked result pages to follow up on.",
     promptSnippet: "web_search(searches: string[]): batch web search; returns ranked result pages",
     promptGuidelines: [
-      "Use web_search to find sources — pass several queries at once to cover a topic from multiple angles.",
+      "Use web_search to find sources — pass several optimized queries at once to cover a topic from multiple angles.",
     ],
     parameters: searchParametersSchema,
 

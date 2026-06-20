@@ -4,23 +4,23 @@
   "description": "pi extension: batch web search. Templates queries into DuckDuckGo URLs and runs the same wreq-js → linkedom → Defuddle pipeline as batch_web_fetch, prefaced with a follow-up nudge. Pairs with pi-smart-fetch.",
   "type": "module",
   "main": "./index.ts",
-  "pi": {
-    "extensions": [
-      "./index.ts"
-    ]
-  },
   "dependencies": {
     "defuddle": "^0.18.1",
     "linkedom": "^0.18.12",
     "typebox": "^1.2.12",
     "wreq-js": "^2.3.1"
   },
+  "devDependencies": {
+    "tsx": "^4.22.4"
+  },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
     "pi-smart-fetch": "*"
   },
-  "devDependencies": {
-    "tsx": "^4.22.4"
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
   }
 }
