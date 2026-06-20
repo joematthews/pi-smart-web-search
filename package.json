@@ -1,7 +1,7 @@
 {
   "name": "pi-smart-web-search",
   "version": "0.1.0",
-  "description": "pi extension: batch web search. Templates queries into DDG URLs and runs the same wreq-js → linkedom → Defuddle pipeline as batch_web_fetch, prefaced with a follow-up nudge. Pairs with pi-smart-fetch.",
+  "description": "Batch web search for the Pi coding agent — ranked, readable results ready to fetch. Pairs with pi-smart-fetch.",
   "keywords": [
     "pi-package",
     "pi",

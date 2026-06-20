@@ -10,19 +10,11 @@ prefaced with a `# Next step` header telling the model to open the best result U
 So the model **curates** which links to open (no SEO-trash auto-pulled into context), and the
 follow-up nudge sits right next to the links.
 
-## Install (local, no registry)
+## Install
 
 ```sh
-cd pi-smart-web-search
-npm install          # pulls wreq-js, defuddle, linkedom
-```
-
-```jsonc
-// ~/.pi/agent/settings.json
-"packages": [
-  "/absolute/path/to/pi-smart-web-search",  // this package
-  "npm:pi-smart-fetch"                       // companion — see below
-]
+pi install npm:pi-smart-web-search
+pi install npm:pi-smart-fetch   # companion (see below)
 ```
 
 Then restart pi.
@@ -104,6 +96,24 @@ npx tsx debug.ts "your search query"
   poorly (the pipeline does not run JavaScript).
 - Built on the same primitives as pi-smart-fetch (`wreq-js` browser-grade TLS, `Defuddle`
   extraction); it does not import pi-smart-fetch's code (factory-only export), only the shared libs.
+
+## Development
+
+Run from a local clone instead of the registry:
+
+```sh
+git clone https://github.com/joematthews/pi-smart-web-search
+cd pi-smart-web-search
+npm install
+```
+
+Point pi at the clone in `~/.pi/agent/settings.json`:
+
+```jsonc
+"packages": ["/absolute/path/to/pi-smart-web-search", "npm:pi-smart-fetch"]
+```
+
+`npm run check` runs typecheck, lint, format, spell, and tests.
 
 ## Credits
 
