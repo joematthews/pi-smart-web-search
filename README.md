@@ -48,41 +48,6 @@ web_search(searches: string[])
 
 Pass several queries at once to cover a topic from multiple angles in one call.
 
-## Settings
-
-Nested under a `smartWebSearch` object in `~/.pi/agent/settings.json` (or a project's
-`.pi/settings.json`, which overrides):
-
-| key         | default      | meaning                                                                                                                                                                                                                                |
-| ----------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `searchUrl` | _(built-in)_ | Search URL template; must contain `{query}` (URL-encoded). Defaults to a no-JavaScript HTML search endpoint. Point it at another engine to switch — the engine also selects the result-link parser, see [Result links](#result-links). |
-| `maxChars`  | `10000`      | Safety cap on extracted result text **per query**. A results page profiles at ~6.4k–7.9k chars, so 10000 (the max + ~25%) won't truncate it, and guards against a larger engine when you change `searchUrl`.                           |
-
-```jsonc
-// ~/.pi/agent/settings.json
-{
-  "smartWebSearch": {
-    "searchUrl": "https://example.com/search?q={query}",
-    "maxChars": 10000,
-  },
-}
-```
-
-## Result links
-
-Search engines often wrap result links in tracking redirects that hide the real destination, so the
-model can't tell where a link goes without fetching it. After extraction, the extension rewrites
-those links back to their real URLs.
-
-The unwrap is chosen by your `searchUrl`: the built-in engine is handled automatically; other engines
-pass through unchanged (add a parser in `index.ts` if you switch engines and want clean links).
-
-Inspect what a query returns:
-
-```sh
-npx tsx debug.ts "your search query"
-```
-
 ## Notes
 
 - **Search engine must be no-JS / server-rendered** to extract well. The default endpoint renders
@@ -108,6 +73,7 @@ Point pi at the clone in `~/.pi/agent/settings.json`:
 ```
 
 `npm run check` runs typecheck, lint, format, spell, and tests.
+`npx tsx debug.ts "your query"` prints what the model would receive for a search.
 
 ## Credits
 
