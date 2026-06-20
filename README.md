@@ -50,14 +50,6 @@ web_search(searches: string[])
 
 Pass several queries at once to cover a topic from multiple angles in one call.
 
-## Notes
-
-- **Search engine must be no-JS / server-rendered** to extract well. The default endpoint renders
-  without JavaScript; `google.com` and other JS-heavy SERPs extract poorly (the pipeline does not run
-  JavaScript).
-- Built on the same primitives as pi-smart-fetch (`wreq-js` browser-grade TLS, `Defuddle`
-  extraction); it does not import pi-smart-fetch's code (factory-only export), only the shared libs.
-
 ## Development
 
 Run from a local clone instead of the registry:
