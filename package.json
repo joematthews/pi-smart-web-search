@@ -1,22 +1,85 @@
 {
   "name": "pi-smart-web-search",
   "version": "0.1.0",
-  "description": "pi extension: batch web search. Templates queries into DuckDuckGo URLs and runs the same wreq-js → linkedom → Defuddle pipeline as batch_web_fetch, prefaced with a follow-up nudge. Pairs with pi-smart-fetch.",
+  "description": "pi extension: batch web search. Templates queries into DDG URLs and runs the same wreq-js → linkedom → Defuddle pipeline as batch_web_fetch, prefaced with a follow-up nudge. Pairs with pi-smart-fetch.",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "web-search",
+    "defuddle",
+    "wreq-js"
+  ],
+  "license": "MIT",
+  "author": "Joe Matthews",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/joematthews/pi-smart-web-search.git"
+  },
+  "homepage": "https://github.com/joematthews/pi-smart-web-search#readme",
+  "bugs": {
+    "url": "https://github.com/joematthews/pi-smart-web-search/issues"
+  },
   "type": "module",
   "main": "./index.ts",
+  "files": [
+    "index.ts",
+    "debug.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "spell": "cspell --no-progress \"**/*\"",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run spell",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,mjs,cjs,js}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,jsonc,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  },
   "dependencies": {
-    "defuddle": "^0.18.1",
+    "defuddle": "^0.19.0",
     "linkedom": "^0.18.12",
-    "typebox": "^1.2.12",
     "wreq-js": "^2.3.1"
   },
   "devDependencies": {
-    "tsx": "^4.22.4"
+    "@cspell/dict-bash": "^4.2.3",
+    "@cspell/dict-en_us": "^4.4.35",
+    "@cspell/dict-html": "^4.0.15",
+    "@cspell/dict-markdown": "^2.0.17",
+    "@cspell/dict-node": "^5.0.9",
+    "@cspell/dict-npm": "^5.2.41",
+    "@cspell/dict-software-terms": "^5.2.2",
+    "@cspell/dict-typescript": "^3.2.3",
+    "@eslint/js": "^10.0.1",
+    "cspell": "^10.0.1",
+    "eslint": "^10.5.0",
+    "eslint-config-prettier": "^10.1.8",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.7",
+    "prettier": "^3.8.4",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.61.1"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
-    "pi-smart-fetch": "*"
+    "pi-smart-fetch": "*",
+    "typebox": "*"
   },
   "pi": {
     "extensions": [

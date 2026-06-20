@@ -33,7 +33,7 @@ if (!page.ok) {
 // DDG links get unwrapped, a non-DDG engine correctly gets no parser.
 const markdown = cleanSearchResultLinks(page.readableText, DEFAULT_SEARCH_URL_TEMPLATE);
 
-// Flag any DuckDuckGo redirect links that slipped through the cleanup.
+// Flag any DDG redirect links that slipped through the cleanup.
 const leftovers =
   markdown.match(/(?:https?:)?\/\/(?:[a-z0-9-]+\.)?duckduckgo\.com\/l\/\?[^)\s"'<>]*\buddg=/gi) ??
   [];

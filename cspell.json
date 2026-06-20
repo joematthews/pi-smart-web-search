@@ -1,0 +1,7 @@
+{
+  "version": "0.2",
+  "caseSensitive": false,
+  "allowCompoundWords": true,
+  "ignorePaths": ["node_modules/**", "package-lock.json", "dist/**"],
+  "words": ["buddg", "defuddle", "duckduckgo", "earendil", "linkedom", "typebox", "uddg", "wreq"]
+}

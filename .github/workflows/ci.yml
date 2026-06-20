@@ -1,0 +1,44 @@
+name: CI
+
+# `pull_request` (NOT `pull_request_target`): for fork PRs the workflow runs with a
+# read-only GITHUB_TOKEN and no access to repository secrets, so untrusted PR code cannot
+# exfiltrate secrets or push to the repo. These checks need neither. Fires on opened,
+# synchronize (new commits pushed to the PR branch), and reopened.
+on:
+  pull_request:
+    branches: [main]
+
+# Least privilege: the checks only read the code.
+permissions:
+  contents: read
+
+# Cancel an in-progress run when the PR branch is updated again.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      # `--ignore-scripts`: do not run install lifecycle/postinstall scripts from the PR's
+      # package.json or its dependencies on the runner. Linting/formatting/spelling only need
+      # the installed type definitions, not built native binaries — so this is safe and removes
+      # an arbitrary-code-execution path from untrusted pull requests.
+      - run: npm ci --ignore-scripts
+
+      - name: Prettier
+        run: npm run format:check
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: cspell
+        run: npm run spell

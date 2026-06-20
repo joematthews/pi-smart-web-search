@@ -51,7 +51,7 @@ pi searches, opens the best results, and answers from what it read. No flags, no
 ## Tool
 
 ```
-web_search(searches: [{ query: string }])
+web_search(searches: string[])
 ```
 
 Pass several queries at once to cover a topic from multiple angles in one call.
@@ -78,7 +78,7 @@ Nested under a `smartWebSearch` object in `~/.pi/agent/settings.json` (or a proj
 
 ## Result links
 
-Search engines rarely link straight to results — DuckDuckGo wraps every link in a tracking redirect
+Search engines rarely link straight to results — DDG wraps every link in a tracking redirect
 (`//duckduckgo.com/l/?uddg=<real-url>&rut=…`), with the real destination percent-encoded inside. Left
 raw, the model can't tell where a link goes without fetching it, so it tends to skip the results and
 answer from snippets alone.
@@ -86,7 +86,7 @@ answer from snippets alone.
 So after extraction, the markdown runs through a **per-engine link parser** that rewrites those
 wrapped links back to their real URLs. The parser is **chosen by the `searchUrl`**:
 
-- `searchUrl` contains `duckduckgo.com` → the DuckDuckGo parser unwraps `uddg=` redirects.
+- `searchUrl` contains `duckduckgo.com` → the DDG parser unwraps `uddg=` redirects.
 - **Any other engine → no parser runs; links are shown raw.** The regex is too engine-specific to
   share, so each engine needs its own parser. Add one in `index.ts` (`parseXLinks` + a branch in
   `cleanSearchResultLinks`) if you swap `searchUrl` to a non-DDG engine and want clean links.
@@ -99,8 +99,20 @@ npx tsx debug.ts "your search query"
 
 ## Notes
 
-- **Search engine must be no-JS / server-rendered** to extract well. The DuckDuckGo HTML endpoint
+- **Search engine must be no-JS / server-rendered** to extract well. The DDG HTML endpoint
   works because it renders without JavaScript; `google.com` and other JS-heavy SERPs will extract
   poorly (the pipeline does not run JavaScript).
 - Built on the same primitives as pi-smart-fetch (`wreq-js` browser-grade TLS, `Defuddle`
   extraction); it does not import pi-smart-fetch's code (factory-only export), only the shared libs.
+
+## Credits
+
+Heavily inspired by [pi-smart-fetch](https://www.npmjs.com/package/pi-smart-fetch) by
+[Thinkscape](https://github.com/Thinkscape) (MIT). `web_search` is an independent implementation —
+no code is copied — but it follows pi-smart-fetch's approach, shares its underlying pipeline
+(`wreq-js` → `linkedom` → `Defuddle`), and its result card mirrors `batch_web_fetch`'s look. Thanks
+to that project for the pattern.
+
+## License
+
+[MIT](LICENSE) © Joe Matthews
