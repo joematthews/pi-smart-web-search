@@ -3,8 +3,11 @@ import {
   buildSearchUrl,
   cleanSearchResultLinks,
   parseDdgLinks,
+  renderProgressCard,
   DEFAULT_SEARCH_URL_TEMPLATE,
 } from "./index.ts";
+
+const plainTheme = { fg: (_color: string, text: string) => text, bold: (text: string) => text };
 
 describe("buildSearchUrl", () => {
   it("substitutes {query} with the URL-encoded query", () => {
@@ -77,5 +80,29 @@ describe("cleanSearchResultLinks", () => {
     const input = "//duckduckgo.com/l/?uddg=https%3A%2F%2Fe.com";
     const nonDdgEngine = "https://www.google.com/search?q={query}";
     expect(cleanSearchResultLinks(input, nonDdgEngine)).toBe(input);
+  });
+});
+
+describe("renderProgressCard", () => {
+  it("does not throw and renders an empty card when progressByQuery is undefined", () => {
+    let card = "";
+    expect(() => {
+      card = renderProgressCard(undefined, plainTheme, 80);
+    }).not.toThrow();
+    expect(card).toContain("0/0 done");
+  });
+
+  it("renders a header and one row per query for a populated result", () => {
+    const card = renderProgressCard(
+      [
+        { query: "rust traits", status: "done", result: undefined },
+        { query: "zig comptime", status: "error", result: undefined },
+      ],
+      plainTheme,
+      80,
+    );
+    expect(card).toContain("2/2 done · ok 1 · err 1");
+    expect(card).toContain("rust traits");
+    expect(card).toContain("zig comptime");
   });
 });

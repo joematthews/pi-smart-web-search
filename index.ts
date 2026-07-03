@@ -288,12 +288,14 @@ function formatStatusBadge(status: string): string {
  * Alignment math uses plain-text lengths; colors (which add invisible escape codes) are
  * applied only after the spacing is computed, so they don't throw off the layout.
  */
-function renderProgressCard(
-  progressByQuery: QueryProgress[],
+export function renderProgressCard(
+  progressByQuery: QueryProgress[] | undefined,
   theme: Theme,
   terminalWidth: number,
 ): string {
   const width = Math.max(24, terminalWidth || 80);
+
+  progressByQuery = progressByQuery ?? [];
 
   const total = progressByQuery.length;
   const finished = progressByQuery.filter(
