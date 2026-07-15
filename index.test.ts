@@ -216,4 +216,12 @@ describe("progress card", () => {
   it("centers a status label in a fixed-width badge", () => {
     expect(formatStatusBadge("done")).toBe("[   done    ]");
   });
+
+  it("renders an empty card instead of throwing when progressByQuery is undefined", () => {
+    let card = "";
+    expect(() => {
+      card = renderProgressCard(undefined, 0, theme, 80);
+    }).not.toThrow();
+    expect(card).toContain("0/0 done");
+  });
 });

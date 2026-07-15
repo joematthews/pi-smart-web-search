@@ -385,12 +385,14 @@ export function formatStatusBadge(status: string): string {
  * applied only after the spacing is computed, so they don't throw off the layout.
  */
 export function renderProgressCard(
-  progressByQuery: QueryProgress[],
+  progressByQuery: QueryProgress[] | undefined,
   dropped: number,
   theme: Theme,
   terminalWidth: number,
 ): string {
   const width = Math.max(24, terminalWidth || 80);
+
+  progressByQuery = progressByQuery ?? [];
 
   const total = progressByQuery.length;
   const finished = progressByQuery.filter(
@@ -454,7 +456,7 @@ interface ToolUpdate {
 
 interface ToolResultPayload {
   content: { type: "text"; text: string }[];
-  details: { progressByQuery: QueryProgress[]; dropped: number };
+  details?: { progressByQuery: QueryProgress[]; dropped: number };
 }
 
 interface ToolDefinition {
@@ -551,7 +553,7 @@ export default function piSmartWebSearch(api: PiToolApi): void {
     // Width-aware (returns a `render(width)` component) so the [ status ] badge can right-align,
     // the same approach batch_web_fetch uses.
     renderResult(result, _opts, theme) {
-      const { progressByQuery, dropped } = result.details;
+      const { progressByQuery, dropped = 0 } = result.details ?? {};
       const text = new Text("", 0, 0);
       return {
         render(width) {
