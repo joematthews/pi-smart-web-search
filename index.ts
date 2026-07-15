@@ -35,7 +35,7 @@ import { join } from "node:path";
 
 /** How we fetch: impersonate a current Chrome on Windows, with a sane timeout. */
 const BROWSER_FETCH_OPTIONS = {
-  browser: "chrome_140" as const,
+  browser: "chrome_147" as const,
   os: "windows" as const,
   timeoutMs: 12_000,
   acceptHeader: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
