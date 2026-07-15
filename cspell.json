@@ -3,16 +3,5 @@
   "caseSensitive": false,
   "allowCompoundWords": true,
   "ignorePaths": ["node_modules/**", "package-lock.json", "dist/**", "coverage/**"],
-  "words": [
-    "buddg",
-    "dedups",
-    "defuddle",
-    "duckduckgo",
-    "earendil",
-    "fexample",
-    "linkedom",
-    "typebox",
-    "uddg",
-    "wreq"
-  ]
+  "words": ["buddg", "dedups", "defuddle", "duckduckgo", "earendil", "fexample", "uddg", "wreq"]
 }

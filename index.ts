@@ -19,9 +19,9 @@
  *      but web_search does not depend on it.)
  */
 
-import { Type, type Static } from "typebox";
+import { Type } from "typebox";
 import { Text } from "@earendil-works/pi-tui";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type ExtensionAPI, type Theme } from "@earendil-works/pi-coding-agent";
 import { fetch } from "wreq-js";
 import { parseHTML } from "linkedom";
 import { Defuddle } from "defuddle/node";
@@ -35,7 +35,7 @@ import { join } from "node:path";
 
 /** How we fetch: impersonate a current Chrome on Windows, with a sane timeout. */
 const BROWSER_FETCH_OPTIONS = {
-  browser: "chrome_140" as const,
+  browser: "chrome_147" as const,
   os: "windows" as const,
   timeoutMs: 12_000,
   acceptHeader: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -242,8 +242,6 @@ const searchParametersSchema = Type.Object({
       "One or more search queries to run together. Pass a few focused queries to cover a topic from multiple angles in a single call.",
   }),
 });
-type SearchParameters = Static<typeof searchParametersSchema>;
-
 /** Hard ceiling on queries per call; excess is silently dropped (counted in the card, invisible to the model). */
 const MAX_QUERIES = 5;
 
@@ -358,7 +356,7 @@ export function formatResultsForModel(
 /** Number of characters between the brackets of a status badge; the label is centered within it. */
 const STATUS_BADGE_INNER_WIDTH = 9;
 
-const labelForStatus = (status: string) => status; // "queued" | "loading" | "done" | "error"
+const labelForStatus = (status: string) => status;
 const colorForStatus = (status: string) =>
   status === "done"
     ? "success"
@@ -387,7 +385,7 @@ export function formatStatusBadge(status: string): string {
 export function renderProgressCard(
   progressByQuery: QueryProgress[] | undefined,
   dropped: number,
-  theme: Theme,
+  theme: Pick<Theme, "fg" | "bold">,
   terminalWidth: number,
 ): string {
   const width = Math.max(24, terminalWidth || 80);
@@ -434,55 +432,15 @@ export function renderProgressCard(
 // 5. Tool registration
 // =============================================================================
 
-/**
- * Minimal local typings for the pi extension surface this tool touches. pi supplies the
- * `api` and `theme` objects at runtime and does not export their types, so we declare just
- * the members we use -- enough to keep the boundary type-safe without depending on internals.
- */
-interface Theme {
-  fg(color: string, text: string): string;
-  bold(text: string): string;
+/** Structured details carried on each result. Fields are optional so a restored result missing
+ *  them re-renders an empty card instead of crashing. */
+interface WebSearchDetails {
+  progressByQuery?: QueryProgress[];
+  dropped?: number;
 }
 
-interface RenderedComponent {
-  render(width: number): string[];
-  invalidate(): void;
-}
-
-interface ToolUpdate {
-  content: unknown[];
-  details: { progressByQuery: QueryProgress[]; dropped: number };
-}
-
-interface ToolResultPayload {
-  content: { type: "text"; text: string }[];
-  details?: { progressByQuery: QueryProgress[]; dropped: number };
-}
-
-interface ToolDefinition {
-  name: string;
-  label: string;
-  description: string;
-  promptSnippet?: string;
-  promptGuidelines?: string[];
-  parameters: unknown;
-  renderCall?: (args: SearchParameters, theme: Theme) => Text;
-  execute: (
-    toolCallId: string,
-    params: SearchParameters,
-    signal: AbortSignal | undefined,
-    onUpdate?: (update: ToolUpdate) => void,
-    ctx?: { cwd?: string },
-  ) => Promise<ToolResultPayload>;
-  renderResult?: (result: ToolResultPayload, opts: unknown, theme: Theme) => RenderedComponent;
-}
-
-interface PiToolApi {
-  registerTool(definition: ToolDefinition): void;
-}
-
-export default function piSmartWebSearch(api: PiToolApi): void {
-  api.registerTool({
+export default function piSmartWebSearch(api: ExtensionAPI): void {
+  api.registerTool<typeof searchParametersSchema, WebSearchDetails>({
     name: "web_search",
     label: "web_search",
     description:
@@ -507,9 +465,8 @@ export default function piSmartWebSearch(api: PiToolApi): void {
     },
 
     async execute(_toolCallId, params, _signal, onUpdate, ctx) {
-      const { searchUrlTemplate, maxCharsPerQuery } = loadSettings(ctx?.cwd ?? process.cwd());
+      const { searchUrlTemplate, maxCharsPerQuery } = loadSettings(ctx.cwd);
 
-      // Cap the queries; anything past MAX_QUERIES is silently dropped (only the count surfaces, in the card).
       const searches = params.searches.slice(0, MAX_QUERIES);
       const dropped = params.searches.length - searches.length;
 
@@ -553,7 +510,7 @@ export default function piSmartWebSearch(api: PiToolApi): void {
     // Width-aware (returns a `render(width)` component) so the [ status ] badge can right-align,
     // the same approach batch_web_fetch uses.
     renderResult(result, _opts, theme) {
-      const { progressByQuery, dropped = 0 } = result.details ?? {};
+      const { progressByQuery, dropped = 0 } = result.details;
       const text = new Text("", 0, 0);
       return {
         render(width) {
