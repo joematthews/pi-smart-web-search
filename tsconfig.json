@@ -21,5 +21,5 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true
   },
-  "include": ["index.ts", "debug.ts", "index.test.ts"]
+  "include": ["index.ts", "debug.ts", "index.test.ts", "fetch.test.ts", "vitest.config.ts"]
 }

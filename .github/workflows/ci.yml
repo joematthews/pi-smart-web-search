@@ -43,5 +43,5 @@ jobs:
       - name: cspell
         run: npm run spell
 
-      - name: Tests
-        run: npm run test
+      - name: Coverage
+        run: npm run coverage
