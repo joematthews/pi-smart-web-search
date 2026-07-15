@@ -456,7 +456,7 @@ interface ToolUpdate {
 
 interface ToolResultPayload {
   content: { type: "text"; text: string }[];
-  details: { progressByQuery: QueryProgress[]; dropped: number };
+  details?: { progressByQuery: QueryProgress[]; dropped: number };
 }
 
 interface ToolDefinition {
@@ -553,7 +553,7 @@ export default function piSmartWebSearch(api: PiToolApi): void {
     // Width-aware (returns a `render(width)` component) so the [ status ] badge can right-align,
     // the same approach batch_web_fetch uses.
     renderResult(result, _opts, theme) {
-      const { progressByQuery, dropped } = result.details;
+      const { progressByQuery, dropped = 0 } = result.details ?? {};
       const text = new Text("", 0, 0);
       return {
         render(width) {
