@@ -1,6 +1,6 @@
 version: 2
 updates:
-  # npm dependencies — group dev tooling into one PR to cut noise.
+  # npm dependencies -- group dev tooling into one PR to cut noise.
   - package-ecosystem: npm
     directory: "/"
     schedule:

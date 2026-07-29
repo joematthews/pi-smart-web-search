@@ -6,28 +6,25 @@ A [pi](https://pi.dev) extension that adds one tool -- **`web_search`** -- for b
 
 It takes an **array of queries**, turns each into a search URL,
 and runs it through the same fetch->extract pipeline as [pi-smart-fetch](https://pi.dev/packages/pi-smart-fetch) (`wreq-js` -> `linkedom` ->
-`Defuddle`). It returns each query's extracted results (titles, links, snippets as markdown),
-followed by a `# Fetch the most relevant links` menu -- the top links per query -- for the model to open.
-
-So the model **curates** which links to open (no SEO-trash auto-pulled into context), and the
-follow-up nudge sits right below the links.
+`Defuddle`). It returns each query's extracted results (numbered titles, links, snippets as markdown),
+followed by a `# Read these pages` summary -- every result link, in rank order -- for the model to open.
 
 ## Install
 
 ```sh
 pi install npm:pi-smart-web-search
-pi install npm:pi-smart-fetch   # strongly recommended companion (see below)
+pi install npm:pi-smart-fetch   # required (see below)
 ```
 
-Then restart pi.
-
-### Pairs with pi-smart-fetch
+### Requires pi-smart-fetch
 
 `web_search` finds and ranks sources; **[`pi-smart-fetch`](https://pi.dev/packages/pi-smart-fetch)**'s
-`batch_web_fetch` is the intended way to read the chosen pages, so installing it alongside is
-**strongly recommended**. It isn't required -- without it the model falls back to whatever fetch
-capability it has (e.g. `curl` through a shell tool); `web_search` still works, the follow-up is just
-less clean.
+`web_fetch` and `batch_web_fetch` are how the chosen pages get read. The tool description and the
+link summary name both tools by name, so installing `web_search` on its own tells the model to call
+tools that do not exist.
+
+Start pi without it and `web_search` says so, once, in the TUI. The warning needs a UI to appear in,
+so `pi -p` will not show it.
 
 ## Usage
 
@@ -47,10 +44,24 @@ pi searches, opens the best results, and answers from what it read. No flags, no
 ## Tool
 
 ```
-web_search(searches: string[])
+web_search(searches: string[])   // up to 6 queries
 ```
 
 Pass a few focused queries at once to cover a topic from multiple angles in one call.
+
+Collapsed, the result is the progress card. Press `Ctrl+O` to see the markdown the model was given,
+rendered: headings styled, results numbered, and every link openable from the terminal.
+
+## Settings
+
+One optional setting, in `~/.pi/agent/settings.json` or a project's `.pi/settings.json`:
+
+```json
+{ "smartWebSearch": { "resultsPerQuery": 5 } }
+```
+
+How many results to keep per query, 1 to 10, default 5. It trades tokens against coverage: against a
+live results page, 10 results cost about 1,400 tokens per query, 5 about 700, and 3 about 460.
 
 ## Development
 
@@ -63,15 +74,13 @@ npm install
 pi install .
 ```
 
-Then restart pi.
-
-`npm run check` runs typecheck, lint, format, spell, and tests.
-`npx tsx debug.ts "your query"` prints what the model would receive for a search.
+`npm run check` runs typecheck, lint, format, spell, and tests. `Ctrl+O` on a result shows exactly
+what the model received, against a real session.
 
 ## Credits
 
 Heavily inspired by [pi-smart-fetch](https://pi.dev/packages/pi-smart-fetch) by
-[Thinkscape](https://github.com/Thinkscape) (MIT). It shares the same pipeline (`wreq-js` -> `linkedom` -> `Defuddle`), and the `web_search` result card mirrors `batch_web_fetch`'s look. Thanks to that project for the pattern.
+[Thinkscape](https://github.com/Thinkscape) (MIT). It shares the same pipeline (`wreq-js` -> `linkedom` -> `Defuddle`), and the progress card follows the shape `batch_web_fetch` established. Thanks to that project for the pattern.
 
 ## License
 
