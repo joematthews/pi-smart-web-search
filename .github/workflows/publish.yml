@@ -1,32 +1,104 @@
 name: Publish
 
-# Publishes to npm when a GitHub Release is published. Uses npm trusted
-# publishing — no NPM_TOKEN is needed, and provenance is attached automatically.
-# Publishes whatever version is in package.json, so bump it (and tag to match)
-# before cutting the release.
+# Publishes to npm when main moves and package.json names a version npm does not have yet.
+#
+# There is no release or tag trigger: the version in package.json is the trigger, and it is
+# reviewed as part of the pull request that bumps it. Merging that PR is the release.
+#
+# The npm lookup is what makes this safe to fire on every push. A merge that did not bump the
+# version publishes nothing, and re-running this workflow cannot publish twice.
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
 
 permissions:
-  contents: read
+  contents: write # to tag the released commit
   id-token: write # required for npm trusted publishing
+
+# Never let two publishes overlap. Not cancel-in-progress: a publish that has started should
+# finish rather than be killed halfway.
+concurrency:
+  group: publish
+  cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    environment: release # scoped to the protected 'release' env (tags only; blocks PR runs)
+    environment: release # protected environment, scoped to main
     env:
-      HUSKY: "0" # skip git-hook setup in CI
+      HUSKY: "0" # no git hooks on a CI checkout
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "24"
+          node-version-file: .nvmrc
+          cache: npm
           registry-url: "https://registry.npmjs.org"
 
-      - run: npm install -g npm@latest # ensure npm is new enough for trusted publishing
-      - run: npm ci
-      - run: npm run check # typecheck, lint, format, spell, tests
-      - run: npm publish --access public
+      - name: Is this version already on npm?
+        id: version
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "$name@$version is already on npm, nothing to do."
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "$name@$version is new, publishing."
+          fi
+
+      - name: Ensure npm is new enough for trusted publishing
+        if: steps.version.outputs.published == 'false'
+        run: npm install -g npm@latest
+
+      # `--ignore-scripts`: no dependency install-script runs in a job that holds an OIDC token.
+      - name: Install
+        if: steps.version.outputs.published == 'false'
+        run: npm ci --ignore-scripts
+
+      # The same gate CI ran on the PR, re-run against the merged tree.
+      - name: Check
+        if: steps.version.outputs.published == 'false'
+        run: npm run check
+
+      # `prepare` sets up git hooks for whoever clones this repo, and means nothing to anyone
+      # installing the package. Left in place, npm records it in the registry metadata and every
+      # consumer is warned that this package "has install scripts", for a script that never runs.
+      # Deleting it here rather than from `prepack` is deliberate: npm reads the manifest before
+      # the pack lifecycle, so a hook edits the tarball while the registry still serves the
+      # original. This edits the checkout npm is about to read, and the checkout is thrown away.
+      - name: Keep dev-only lifecycle scripts out of the published manifest
+        if: steps.version.outputs.published == 'false'
+        run: npm pkg delete scripts.prepare
+
+      - name: Publish
+        if: steps.version.outputs.published == 'false'
+        run: npm publish --access public
+
+      # Everything below runs only because `npm publish` above succeeded -- a failed step ends
+      # the job -- so the tag and the Release can never describe a version npm does not have.
+      # Values reach the shell through `env`, never interpolated into the script.
+      - name: Tag the released commit
+        if: steps.version.outputs.published == 'false'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
+
+      # Notes are generated from the PRs merged since the previous release, categorised by
+      # .github/release.yml.
+      - name: Create the GitHub Release
+        if: steps.version.outputs.published == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "v$VERSION" \
+            --title "v$VERSION" \
+            --generate-notes \
+            --verify-tag \
+            --latest

@@ -20,19 +20,30 @@ concurrency:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    env:
+      HUSKY: "0" # no git hooks on a CI checkout
     steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v6
+      # Full history: the version-bump reminder below diffs against the base branch.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          node-version: "24"
+          persist-credentials: false # CI never pushes; keeps GITHUB_TOKEN out of .git/config
+          fetch-depth: 0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
           cache: npm
 
       # `--ignore-scripts`: do not run install lifecycle/postinstall scripts from the PR's
       # package.json or its dependencies on the runner. Linting/formatting/spelling only need
-      # the installed type definitions, not built native binaries — so this is safe and removes
+      # the installed type definitions, not built native binaries -- so this is safe and removes
       # an arbitrary-code-execution path from untrusted pull requests.
       - run: npm ci --ignore-scripts
+
+      # Runs first: a type error makes every check below it unreliable, and neither ESLint nor
+      # vitest reports one on its own.
+      - name: Typecheck
+        run: npm run typecheck
 
       - name: Prettier
         run: npm run format:check
@@ -45,3 +56,22 @@ jobs:
 
       - name: Coverage
         run: npm run coverage
+
+      # Advisory only. A PR that changes shipped code without bumping the version will merge
+      # fine, it just will not publish -- this is the reminder, not a gate.
+      #
+      # BASE_REF goes through `env` rather than being interpolated into the script. A branch
+      # name is attacker-controlled on a fork PR, and `${{ github.base_ref }}` written directly
+      # into a `run:` block is expanded before the shell sees it. As an environment variable the
+      # shell treats it as a plain string. See GHSA-7x29-qqmq-v6qc.
+      - name: Version bump reminder
+        if: always()
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git show "origin/$BASE_REF:package.json" > /tmp/base-package.json
+          base=$(node -p "require('/tmp/base-package.json').version")
+          head=$(node -p "require('./package.json').version")
+          if [ "$base" = "$head" ] && ! git diff --quiet "origin/$BASE_REF...HEAD" -- index.ts markdown.ts README.md; then
+            echo "::warning::Shipped files changed but the version is still $head. Merging will not publish."
+          fi
