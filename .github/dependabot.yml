@@ -9,6 +9,13 @@ updates:
     groups:
       dev-dependencies:
         dependency-type: development
+    ignore:
+      # typescript-eslint declares `peer typescript >=4.8.4 <6.1.0`, so TypeScript 7 cannot be
+      # installed alongside it -- `npm ci` fails to resolve. Minor and patch updates still come
+      # through. Drop this entry once typescript-eslint widens its peer range.
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
 
   # GitHub Actions used in workflows (keeps checkout/setup-node current).
   - package-ecosystem: github-actions
