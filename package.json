@@ -1,7 +1,7 @@
 {
   "name": "pi-smart-web-search",
   "version": "0.3.0",
-  "description": "Batch web search for the Pi coding agent — ranked, readable results ready to fetch. Pairs with pi-smart-fetch.",
+  "description": "Batch web search for the pi coding agent -- ranked, readable results ready to fetch. Requires pi-smart-fetch.",
   "keywords": [
     "pi-package",
     "pi",
@@ -24,7 +24,7 @@
   "main": "./index.ts",
   "files": [
     "index.ts",
-    "debug.ts",
+    "markdown.ts",
     "README.md",
     "LICENSE"
   ],
@@ -68,17 +68,21 @@
     "@cspell/dict-software-terms": "^5.2.4",
     "@cspell/dict-typescript": "^3.2.3",
     "@eslint/js": "^10.0.1",
+    "@eslint/markdown": "^8.0.3",
     "@vitest/coverage-v8": "^4.1.10",
     "cspell": "^10.0.1",
     "eslint": "^10.7.0",
     "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-repertoire": "^0.1.0",
     "husky": "^9.1.7",
+    "jsonc-eslint-parser": "^3.1.0",
     "lint-staged": "^17.0.8",
     "prettier": "^3.9.5",
     "tsx": "^4.23.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.64.0",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "yaml-eslint-parser": "^2.1.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

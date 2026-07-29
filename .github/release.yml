@@ -1,0 +1,35 @@
+# Template for the notes `gh release create --generate-notes` writes after a successful publish.
+#
+# Entries are pull requests merged since the previous release, sorted into the first category
+# whose labels match. A PR with no matching label falls through to "Other changes", so nothing is
+# silently dropped.
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+  categories:
+    - title: Breaking changes
+      labels:
+        - breaking
+
+    - title: New features
+      labels:
+        - feature
+        - enhancement
+
+    - title: Bug fixes
+      labels:
+        - bug
+
+    - title: Documentation
+      labels:
+        - documentation
+
+    - title: Dependencies and tooling
+      labels:
+        - dependencies
+        - tooling
+
+    - title: Other changes
+      labels:
+        - "*"

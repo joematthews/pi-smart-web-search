@@ -1,97 +1,82 @@
-/**
- * pi-smart-web-search -- a pi extension that adds one tool: `web_search`.
- *
- * What it does, in plain terms:
- *   1. The model hands us one or more search queries.
- *   2. For each query, we build a DDG search URL, fetch that results page,
- *      and extract it into clean, readable text (the same fetch + extract pipeline
- *      pi-smart-fetch uses: wreq-js to fetch, linkedom + Defuddle to extract).
- *   3. We hand the model the extracted results, followed by a short "# Next step" menu of the
- *      result links (grouped by query) to open and read the full pages.
- *
- * So the model decides which links are worth reading (no junk auto-pulled into its
- * context), and the "go read them" nudge sits right next to the links.
- *
- * Local install (no npm registry):
- *   1. `cd` into this folder and run `npm install` (pulls wreq-js, defuddle, linkedom).
- *   2. Add this folder's absolute path to the "packages" list in ~/.pi/agent/settings.json.
- *   3. Restart pi. (pi-smart-fetch is recommended -- it adds a tool to open the result links --
- *      but web_search does not depend on it.)
- */
+// pi-smart-web-search -- registers one pi tool, `web_search`. See README.md for what it does.
+// This file does the impure work: fetching, reading settings, and talking to pi. The markdown
+// the model ends up reading is built by markdown.ts. Nothing here checks DuckDuckGo's output
+// for missing titles, links or markup. That is deliberate: the extension cannot work at all
+// without that endpoint, so a page that no longer parses means the extension is broken and
+// should fail visibly rather than return half a result.
 
-import { Type } from "typebox";
-import { Text } from "@earendil-works/pi-tui";
-import { getAgentDir, type ExtensionAPI, type Theme } from "@earendil-works/pi-coding-agent";
+import { Type, type Static } from "typebox";
+import {
+  Container,
+  Markdown,
+  Spacer,
+  Text,
+  truncateToWidth,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
+import {
+  getAgentDir,
+  getMarkdownTheme,
+  keyHint,
+  type ExtensionAPI,
+  type Theme,
+  type ThemeColor,
+} from "@earendil-works/pi-coding-agent";
 import { fetch } from "wreq-js";
 import { parseHTML } from "linkedom";
 import { Defuddle } from "defuddle/node";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  renderToolResult,
+  BATCH_FETCH_TOOL_NAME,
+  FETCH_TOOL_NAME,
+  type PageFetchResult,
+  type QueryProgress,
+  type QueryStatus,
+  type SearchResultLink,
+} from "./markdown.ts";
 
 // =============================================================================
-// 1. Fetching and extracting a page
-//    Fetch a URL like a real browser, then pull out the readable text as markdown.
+// Reading a page off the web
 // =============================================================================
 
-/** How we fetch: impersonate a current Chrome on Windows, with a sane timeout. */
-const BROWSER_FETCH_OPTIONS = {
-  browser: "chrome_147" as const,
-  os: "windows" as const,
-  timeoutMs: 12_000,
-  acceptHeader: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-  acceptLanguageHeader: "en-US,en;q=0.9",
-};
+// How long to wait between fetches. Requesting faster than this earns an HTTP 202 challenge
+// page from DDG instead of results, so the wait is what keeps searches working, not politeness.
+// The random extra avoids sending requests on an exact interval.
+const MIN_MS_BETWEEN_FETCHES = 1_000;
+const EXTRA_RANDOM_WAIT_MS = 400;
 
-/** Global minimum gap between fetches (plus jitter) to stay under the search endpoint's rate limit. */
-const MIN_MS_BETWEEN_FETCHES = 1_500;
-const FETCH_JITTER_MS = 400;
-let lastFetchAt = 0;
-async function throttleBeforeFetch(): Promise<void> {
-  const target = MIN_MS_BETWEEN_FETCHES + Math.floor(Math.random() * FETCH_JITTER_MS);
-  const sinceLast = Date.now() - lastFetchAt;
-  if (sinceLast < target) {
-    await new Promise((resolve) => setTimeout(resolve, target - sinceLast));
+let lastFetchStartedAt = 0;
+
+async function waitBeforeNextFetch(): Promise<void> {
+  const waitFor = MIN_MS_BETWEEN_FETCHES + Math.floor(Math.random() * EXTRA_RANDOM_WAIT_MS);
+  const elapsed = Date.now() - lastFetchStartedAt;
+  if (elapsed < waitFor) {
+    await new Promise((resolve) => setTimeout(resolve, waitFor - elapsed));
   }
-  lastFetchAt = Date.now();
+  lastFetchStartedAt = Date.now();
 }
 
-/** Max result links pulled from each search page for the end-of-results "next step" menu. */
-const MAX_LINKS_PER_QUERY = 4;
-
-/** A single search result: its title and the (redirect-unwrapped) destination URL. */
-export interface SearchResultLink {
-  title: string;
-  url: string;
-}
-
-/** The outcome of fetching one URL: readable text plus any extracted result links, or a failure reason. */
-export type PageFetchResult =
-  | {
-      ok: true;
-      requestedUrl: string;
-      finalUrl: string;
-      title: string;
-      readableText: string;
-      links: SearchResultLink[];
-    }
-  | { ok: false; requestedUrl: string; error: string };
-
-/** Fetch a single URL and extract its readable text. Never throws -- failures come back as `{ ok: false }`. */
-export async function fetchReadablePage(url: string): Promise<PageFetchResult> {
+// Fetch a URL and extract its readable text. Never throws -- failures return `{ ok: false }`.
+export async function fetchReadablePage(
+  url: string,
+  resultsPerQuery: number,
+): Promise<PageFetchResult> {
   try {
-    await throttleBeforeFetch();
+    await waitBeforeNextFetch();
     const response = await fetch(url, {
-      browser: BROWSER_FETCH_OPTIONS.browser,
-      os: BROWSER_FETCH_OPTIONS.os,
+      browser: "chrome_147",
+      os: "windows",
       headers: {
-        Accept: BROWSER_FETCH_OPTIONS.acceptHeader,
-        "Accept-Language": BROWSER_FETCH_OPTIONS.acceptLanguageHeader,
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
       },
       redirect: "follow",
-      timeout: BROWSER_FETCH_OPTIONS.timeoutMs,
+      timeout: 12_000,
     });
 
-    // 202 is a 2xx (response.ok is true), but the endpoint returns it for a rate-limit challenge page.
+    // 202 counts as ok, but DDG returns it for a rate-limit challenge page rather than results.
     if (response.status === 202) {
       return {
         ok: false,
@@ -108,11 +93,13 @@ export async function fetchReadablePage(url: string): Promise<PageFetchResult> {
       };
     }
 
-    // The URL may differ after redirects; use the final one for extraction context.
+    // Redirects mean the final URL may differ from the requested one; extraction needs the final.
     const finalUrl = response.url;
-    const html = await response.text();
-    const { document } = parseHTML(html);
-    const extraction = await Defuddle(document, finalUrl, { markdown: true, removeImages: true });
+    const page = parseHTML(await response.text()).document;
+
+    // Trim first, then read, so the snippets and the link summary describe the same results.
+    keepFirstResults(page, resultsPerQuery);
+    const extraction = await Defuddle(page, finalUrl, { markdown: true, removeImages: true });
 
     return {
       ok: true,
@@ -120,7 +107,7 @@ export async function fetchReadablePage(url: string): Promise<PageFetchResult> {
       finalUrl,
       title: extraction.title,
       readableText: extraction.content.trim(),
-      links: extractResultLinks(html),
+      links: readResultLinks(page),
     };
   } catch (caught) {
     return {
@@ -131,329 +118,263 @@ export async function fetchReadablePage(url: string): Promise<PageFetchResult> {
   }
 }
 
-/**
- * Pull the ranked result links from a DDG results page: the `a.result__a` anchors, each redirect
- * unwrapped to its real URL, deduped, capped at MAX_LINKS_PER_QUERY. A non-DDG page has no such
- * anchors, so this returns []. Exported for testing.
- */
-export function extractResultLinks(html: string): SearchResultLink[] {
-  const { document } = parseHTML(html);
-  const anchors = Array.from(document.querySelectorAll("a.result__a")) as unknown as {
-    getAttribute(name: string): string | null;
-    textContent: string | null;
-  }[];
-  const links: SearchResultLink[] = [];
-  const seen = new Set<string>();
-  for (const anchor of anchors) {
-    const href = anchor.getAttribute("href") ?? "";
-    const encoded = /[?&]uddg=([^&]+)/.exec(href)?.[1];
-    let url = href;
-    if (encoded) {
-      try {
-        url = decodeURIComponent(encoded);
-      } catch {
-        url = href;
-      }
-    }
-    const title = (anchor.textContent ?? "").trim();
-    if (!url || seen.has(url)) continue;
-    seen.add(url);
-    links.push({ title: title || url, url });
-    if (links.length >= MAX_LINKS_PER_QUERY) break;
-  }
-  return links;
-}
-
 // =============================================================================
-// 2. Settings
-//    Read from a `smartWebSearch` object in settings.json (global, then per-project
-//    which overrides). Both keys are optional -- the defaults below are used otherwise.
+// Picking the results out of a DuckDuckGo page
 //
-//      "smartWebSearch": {
-//        "searchUrl": "https://html.duckduckgo.com/html/?q={query}",
-//        "maxChars": 10000
-//      }
+// A results page nests like this, ten times over:
+//
+//   <div class="result">
+//     <h2 class="result__title"><a class="result__a" href="/l/?uddg=...">Page title</a></h2>
+//     ...snippet...
+//   </div>
 // =============================================================================
 
-/** Default search engine: DDG's no-JavaScript HTML endpoint (`{query}` is filled in per search). */
-export const DEFAULT_SEARCH_URL_TEMPLATE = "https://html.duckduckgo.com/html/?q={query}";
-
-/**
- * Safety cap on how much extracted text we return per query. A DDG results page
- * through this pipeline measures ~6,400-7,900 characters, so 10,000 (the ~7,900 max plus
- * ~25% headroom) never truncates DDG -- it only protects against a different,
- * larger engine when someone swaps `searchUrl`.
- */
-const DEFAULT_MAX_CHARS_PER_QUERY = 10_000;
-
-interface Settings {
-  searchUrlTemplate: string;
-  maxCharsPerQuery: number;
+function findAll(page: Document, selector: string) {
+  return Array.from(page.querySelectorAll(selector));
 }
 
-/** Load settings, applying global then per-project overrides. Bad/missing files are ignored. */
-export function loadSettings(projectDir: string): Settings {
-  const settings: Settings = {
-    searchUrlTemplate: DEFAULT_SEARCH_URL_TEMPLATE,
-    maxCharsPerQuery: DEFAULT_MAX_CHARS_PER_QUERY,
-  };
+// Delete every result past the first `count`, so only those results reach the reader. This is
+// the single point where `resultsPerQuery` takes effect. Because it edits the page before
+// anything reads it, one setting shrinks the snippets and the link summary by the same amount.
+export function keepFirstResults(page: Document, count: number): void {
+  for (const surplus of findAll(page, "div.result").slice(count)) {
+    surplus.remove();
+  }
+}
 
-  const settingsFiles = [
-    join(getAgentDir(), "settings.json"), // global: ~/.pi/agent/settings.json
-    join(projectDir, ".pi", "settings.json"), // per-project: ./.pi/settings.json (wins)
-  ];
+// Every result link on the page, in DuckDuckGo's ranked order. Results are passed through
+// exactly as ranked, repeats included: a URL returned twice is DDG saying so twice, and a URL
+// shared by two queries is a relevance signal worth showing the model.
+export function readResultLinks(page: Document): SearchResultLink[] {
+  return findAll(page, "a.result__a").map((anchor) => ({
+    title: anchor.textContent.trim(),
+    url: unwrapRedirect(anchor.getAttribute("href") ?? ""),
+  }));
+}
 
-  for (const file of settingsFiles) {
-    try {
-      const parsed: unknown = JSON.parse(readFileSync(file, "utf-8"));
-      const section = (parsed as { smartWebSearch?: unknown }).smartWebSearch;
-      if (typeof section === "object" && section !== null) {
-        const { searchUrl, maxChars } = section as { searchUrl?: unknown; maxChars?: unknown };
-        // A search URL is only accepted if it has the {query} placeholder to fill in.
-        if (typeof searchUrl === "string" && searchUrl.includes("{query}")) {
-          settings.searchUrlTemplate = searchUrl;
-        }
-        if (typeof maxChars === "number" && maxChars > 0) {
-          settings.maxCharsPerQuery = Math.floor(maxChars);
-        }
-      }
-    } catch {
-      // File missing or not valid JSON -> keep whatever we have so far.
+// DDG hides each destination behind `/l/?uddg=<escaped-url>`; this gives back the real one.
+function unwrapRedirect(href: string): string {
+  const escapedUrl = /[?&]uddg=([^&]+)/.exec(href)?.[1];
+  return escapedUrl ? decodeURIComponent(escapedUrl) : href;
+}
+
+// =============================================================================
+// The search engine and its one setting
+// =============================================================================
+
+// DuckDuckGo's no-JavaScript HTML endpoint, the only engine this extension supports. Reading
+// results means reading DDG's own markup, so pointing this elsewhere returns a page with no
+// links.
+export const SEARCH_URL_TEMPLATE = "https://html.duckduckgo.com/html/?q={query}";
+
+export function buildSearchUrl(query: string): string {
+  return SEARCH_URL_TEMPLATE.replace("{query}", encodeURIComponent(query));
+}
+
+// How many results to keep per query. DDG returns 10 per page, so 10 is the maximum. Fewer
+// results cost proportionally fewer tokens, which is the trade this setting exists to make. The
+// default keeps the better-ranked half, which assumes results 6-10 rarely carry the answer.
+// That holds for a factual lookup and holds less well for a broad survey.
+export const DEFAULT_RESULTS_PER_QUERY = 5;
+export const MIN_RESULTS_PER_QUERY = 1;
+export const MAX_RESULTS_PER_QUERY = 10;
+
+// Read `smartWebSearch.resultsPerQuery` from settings.json: the global file first, then the
+// project one, which wins. A value outside 1-10 is pulled back into range, and a file that is
+// missing or not valid JSON leaves the default in place.
+//
+//   "smartWebSearch": { "resultsPerQuery": 5 }
+export function loadResultsPerQuery(projectDir: string): number {
+  const globalFile = join(getAgentDir(), "settings.json"); // ~/.pi/agent/settings.json
+  const projectFile = join(projectDir, ".pi", "settings.json");
+
+  let resultsPerQuery = DEFAULT_RESULTS_PER_QUERY;
+
+  // The project file is read second, so whatever it sets wins.
+  for (const file of [globalFile, projectFile]) {
+    const configured = readResultsPerQueryFrom(file);
+    if (configured !== undefined) {
+      resultsPerQuery = clamp(configured, MIN_RESULTS_PER_QUERY, MAX_RESULTS_PER_QUERY);
     }
   }
 
-  return settings;
+  return resultsPerQuery;
 }
 
-/** Turn a query into a full search URL by filling the `{query}` placeholder. */
-export function buildSearchUrl(template: string, query: string): string {
-  return template.replace("{query}", encodeURIComponent(query));
+interface SettingsFile {
+  smartWebSearch?: { resultsPerQuery?: unknown };
 }
 
-// =============================================================================
-// 3. The tool: parameters, progress tracking, and the text we return to the model
-// =============================================================================
-
-/** The tool takes a list of queries -- plural on purpose, to encourage covering a topic from several angles. */
-const searchParametersSchema = Type.Object({
-  searches: Type.Array(Type.String(), {
-    minItems: 1,
-    description:
-      "One or more search queries to run together. Pass a few focused queries to cover a topic from multiple angles in a single call.",
-  }),
-});
-/** Hard ceiling on queries per call; excess is silently dropped (counted in the card, invisible to the model). */
-const MAX_QUERIES = 5;
-
-/** Where each query is in its lifecycle, plus its result once it finishes. Drives the live progress card. */
-export interface QueryProgress {
-  query: string;
-  status: "queued" | "loading" | "done" | "error";
-  result: PageFetchResult | undefined;
-}
-
-/** Header for the end-of-results "next step" menu -- placed just before generation, where it lands hardest. */
-const NEXT_STEP_HEADER = [
-  "# Fetch the most relevant links",
-  "",
-  "Read the full pages below before answering -- these previews are brief and may be out of date. " +
-    "Skip fetching only if the previews already fully answer the question.",
-  "",
-].join("\n");
-
-/**
- * The action menu appended after the results: a nested list of each query and its top result links.
- * A link relevant to several queries simply repeats across the list, leaving the cross-query
- * relevance for the model to read off. Sits at the end, closest to where the model generates.
- * Empty when there are no links.
- */
-export function renderNextStepMenu(progressByQuery: QueryProgress[]): string {
-  const lines: string[] = [];
-  progressByQuery.forEach((entry, index) => {
-    if (!entry.result?.ok || entry.result.links.length === 0) return;
-    const queryNumber = index + 1;
-    lines.push(`${queryNumber}. "${entry.query}"`);
-    entry.result.links.forEach((link, linkIndex) => {
-      lines.push(`   ${queryNumber}.${linkIndex + 1} [${link.title}](${link.url})`);
-    });
-  });
-
-  return lines.length ? `${NEXT_STEP_HEADER}\n${lines.join("\n")}` : "";
-}
-
-/**
- * Clean up the result links in extracted markdown for whichever search engine produced it.
- *
- * Each engine mangles links its own way, and the cleanup is too engine-specific to express as a
- * single shared regex -- so we dispatch to a per-engine parser keyed off the search URL. Engines we
- * don't have a parser for fall through unchanged (raw links shown as-is).
- */
-export function cleanSearchResultLinks(markdown: string, searchUrlTemplate: string): string {
-  if (searchUrlTemplate.includes("duckduckgo.com")) {
-    return parseDdgLinks(markdown);
-  }
-  return markdown;
-}
-
-/**
- * DDG wraps every result link in a redirect: `https://duckduckgo.com/l/?uddg=<real-url>&rut=...`,
- * where the real destination is percent-encoded in the `uddg` query parameter. Left as-is, the model
- * would hand these opaque redirect URLs to batch_web_fetch. This unwraps them back to the real URL
- * everywhere they appear in the extracted markdown (both protocol-relative and absolute forms).
- */
-export function parseDdgLinks(markdown: string): string {
-  // Matches the whole redirect URL -- scheme optional (DDG often emits protocol-relative links) --
-  // captures the `uddg` value, and consumes any trailing params (e.g. `&rut=...`) so nothing dangles.
-  const redirectPattern =
-    /(?:https?:)?\/\/(?:[a-z0-9-]+\.)?duckduckgo\.com\/l\/\?[^)\s"'<>]*?\buddg=([^&)\s"'<>]+)[^)\s"'<>]*/gi;
-
-  return markdown.replace(redirectPattern, (whole: string, encodedTarget: string) => {
-    try {
-      return decodeURIComponent(encodedTarget);
-    } catch {
-      return whole; // Malformed encoding -> leave the original link untouched.
-    }
-  });
-}
-
-/** Build the full text we hand back to the model: each query's results, then the "next step" link menu. */
-export function formatResultsForModel(
-  progressByQuery: QueryProgress[],
-  maxCharsPerQuery: number,
-  searchUrlTemplate: string,
-): string {
-  const sections: string[] = [];
-
-  for (const entry of progressByQuery) {
-    sections.push(`## Query: "${entry.query}"`);
-
-    if (!entry.result?.ok) {
-      const reason = entry.result ? entry.result.error : "unknown";
-      sections.push(`_search failed: ${reason}_\n`);
-      continue;
-    }
-
-    const fullText = cleanSearchResultLinks(entry.result.readableText || "", searchUrlTemplate);
-    const cappedText =
-      fullText.length > maxCharsPerQuery
-        ? fullText.slice(0, maxCharsPerQuery) + "\n...(truncated)"
-        : fullText;
-    sections.push(`${cappedText || "_no content extracted_"}\n`);
+// The whole number one settings file asks for, or undefined if it does not ask for one.
+function readResultsPerQueryFrom(file: string): number | undefined {
+  let settings: SettingsFile;
+  try {
+    settings = JSON.parse(readFileSync(file, "utf-8")) as SettingsFile;
+  } catch {
+    return undefined; // No such file, or its contents are not valid JSON.
   }
 
-  const menu = renderNextStepMenu(progressByQuery);
-  if (menu) sections.push(menu);
+  const configured = settings.smartWebSearch?.resultsPerQuery;
+  if (typeof configured !== "number" || !Number.isFinite(configured)) return undefined;
+  return Math.floor(configured);
+}
 
-  return sections.join("\n");
+function clamp(value: number, lowest: number, highest: number): number {
+  return Math.min(highest, Math.max(lowest, value));
 }
 
 // =============================================================================
-// 4. The progress card (what shows in pi's terminal UI while searches run)
-//    One row per query: a status glyph, the query text, and a right-aligned
-//    [ status ] badge -- matching batch_web_fetch's look.
+// The progress card shown in pi's terminal while searches run
+//
+// One row per query: a status glyph, the query, and a right-aligned [ status ] badge.
+// Expanding with Ctrl+O keeps the card and adds the answer underneath it.
 // =============================================================================
 
-/** Number of characters between the brackets of a status badge; the label is centered within it. */
-const STATUS_BADGE_INNER_WIDTH = 9;
+// How each status looks: a theme color, and the character that starts its row.
+const STATUS_STYLES: Record<QueryStatus, { color: ThemeColor; glyph: string }> = {
+  queued: { color: "muted", glyph: "." },
+  loading: { color: "accent", glyph: "." },
+  done: { color: "success", glyph: "+" },
+  error: { color: "error", glyph: "x" },
+};
 
-const labelForStatus = (status: string) => status;
-const colorForStatus = (status: string) =>
-  status === "done"
-    ? "success"
-    : status === "error"
-      ? "error"
-      : status === "loading"
-        ? "accent"
-        : "muted";
-const glyphForStatus = (status: string) =>
-  status === "done" ? "+" : status === "error" ? "x" : ".";
+// How wide the status text inside a badge is padded to, so every badge is the same width.
+const STATUS_BADGE_TEXT_WIDTH = 9;
 
-/** Render a fixed-width, centered status badge like `[   done    ]`. */
+// The status centered in a fixed-width badge, such as `[ done ]`.
 export function formatStatusBadge(status: string): string {
-  const label = labelForStatus(status);
-  const totalPadding = Math.max(0, STATUS_BADGE_INNER_WIDTH - label.length);
-  const leftPadding = Math.floor(totalPadding / 2);
-  const rightPadding = totalPadding - leftPadding;
-  return `[${" ".repeat(leftPadding + 1)}${label}${" ".repeat(rightPadding + 1)}]`;
+  const spacesNeeded = Math.max(0, STATUS_BADGE_TEXT_WIDTH - status.length);
+  const spacesBefore = Math.floor(spacesNeeded / 2);
+  const spacesAfter = spacesNeeded - spacesBefore;
+  return `[ ${" ".repeat(spacesBefore)}${status}${" ".repeat(spacesAfter)} ]`;
 }
 
-/**
- * Build the progress card text for a given terminal width, right-aligning each badge.
- * Alignment math uses plain-text lengths; colors (which add invisible escape codes) are
- * applied only after the spacing is computed, so they don't throw off the layout.
- */
+// Trim to the columns a terminal gives the text, which is not its number of characters: a CJK
+// character occupies two columns, and an emoji is one glyph across two code units.
+function truncate(text: string, roomAvailable: number): string {
+  if (visibleWidth(text) <= roomAvailable) return text;
+  return truncateToWidth(text, Math.max(1, roomAvailable));
+}
+
+// Width of the glyph column: the status character plus the space after it.
+const GLYPH_COLUMN_WIDTH = 2;
+
+// Build the progress card for a given terminal width. The header separator is a middle dot
+// (U+00B7), matching pi-smart-fetch's batch_web_fetch card so the two tools read as a set. It
+// is the one character here outside the US keyboard, and it sits in a string because it is
+// drawn on screen rather than written in source. Spacing is worked out from plain text and the
+// colors are added afterwards. Coloring first would count the invisible escape codes as width
+// and push every badge out of line.
 export function renderProgressCard(
   progressByQuery: QueryProgress[] | undefined,
-  dropped: number,
   theme: Pick<Theme, "fg" | "bold">,
   terminalWidth: number,
 ): string {
+  // A card restored from a session saved by an older version may have no progress to show.
+  const entries = progressByQuery ?? [];
   const width = Math.max(24, terminalWidth || 80);
 
-  progressByQuery = progressByQuery ?? [];
+  const succeeded = entries.filter((entry) => entry.status === "done").length;
+  const failed = entries.filter((entry) => entry.status === "error").length;
 
-  const total = progressByQuery.length;
-  const finished = progressByQuery.filter(
-    (q) => q.status === "done" || q.status === "error",
-  ).length;
-  const succeeded = progressByQuery.filter((q) => q.status === "done").length;
-  const failed = progressByQuery.filter((q) => q.status === "error").length;
-
-  // Header line, e.g. "web_search 2/3 done | ok 2 | err 0"; `| drop N` appears only when queries were capped.
-  const dropSuffix = dropped > 0 ? ` | drop ${dropped}` : "";
+  // The tool is named by `renderCall`, which stays above this, so the card counts rather than
+  // repeats it.
   const lines = [
-    theme.fg("toolTitle", theme.bold("web_search ")) +
-      theme.fg("muted", `${finished}/${total} done | ok ${succeeded} | err ${failed}${dropSuffix}`),
+    theme.fg(
+      "muted",
+      `${succeeded + failed}/${entries.length} done · ok ${succeeded} · err ${failed}`,
+    ),
   ];
 
-  for (const entry of progressByQuery) {
+  for (const entry of entries) {
     const badge = formatStatusBadge(entry.status);
-    const glyphAndSpaceWidth = 2; // the status glyph plus the space after it
+    const style = STATUS_STYLES[entry.status];
 
-    // Truncate the query if the row would otherwise overflow the terminal width.
-    const maxQueryWidth = Math.max(1, width - glyphAndSpaceWidth - badge.length - 1);
-    const query =
-      entry.query.length > maxQueryWidth
-        ? entry.query.slice(0, Math.max(1, maxQueryWidth - 1)) + "..."
-        : entry.query;
+    // The query gets whatever room the glyph, the badge and at least one space leave behind.
+    const roomForQuery = width - GLYPH_COLUMN_WIDTH - badge.length - 1;
+    const query = truncate(entry.query, Math.max(1, roomForQuery));
+    const gapBeforeBadge = Math.max(
+      1,
+      width - GLYPH_COLUMN_WIDTH - visibleWidth(query) - badge.length,
+    );
 
-    // Spaces between the query and the badge so the badge lands flush against the right edge.
-    const gap = Math.max(1, width - glyphAndSpaceWidth - query.length - badge.length);
-
-    const glyph = theme.fg(colorForStatus(entry.status), glyphForStatus(entry.status));
-    const coloredBadge = theme.fg(colorForStatus(entry.status), badge);
-    lines.push(`${glyph} ${theme.fg("accent", query)}${" ".repeat(gap)}${coloredBadge}`);
+    lines.push(
+      `${theme.fg(style.color, style.glyph)} ${theme.fg("accent", query)}` +
+        `${" ".repeat(gapBeforeBadge)}${theme.fg(style.color, badge)}`,
+    );
   }
 
   return lines.join("\n");
 }
 
 // =============================================================================
-// 5. Tool registration
+// Tool registration
 // =============================================================================
 
-/** Structured details carried on each result. Fields are optional so a restored result missing
- *  them re-renders an empty card instead of crashing. */
-interface WebSearchDetails {
+// A call with more than six queries fails validation before execute runs, so `maxItems` is the
+// limit and the description below only has to explain how to choose within it. The const exists
+// because `registerTool` needs `typeof` it to type the tool's details; inlining the schema
+// loses that and `result.details` becomes `unknown`.
+const searchParametersSchema = Type.Object({
+  searches: Type.Array(Type.String(), {
+    minItems: 1,
+    maxItems: 6,
+    description:
+      "One to six search queries, each fetched as its own results page. Match the count to the " +
+      "question: 1 for a narrow factual lookup, 2-3 for a topic with a few distinct angles, up to " +
+      "6 for a broad or multi-part question. More queries is not better -- each one costs a fetch " +
+      "and adds results to read, so only widen the set when the extra angles would actually change " +
+      "the answer.",
+  }),
+});
+
+export type WebSearchInput = Static<typeof searchParametersSchema>;
+
+/** What the card needs to redraw itself. Optional because an older session may not carry it. */
+export interface WebSearchDetails {
   progressByQuery?: QueryProgress[];
-  dropped?: number;
+}
+
+// Shown at session start, in the TUI only, when nothing can open result links. pi prefixes it
+// with "Warning: ".
+export const MISSING_FETCH_WARNING =
+  "pi-smart-web-search needs a page-fetching tool to open search results, but neither " +
+  `${FETCH_TOOL_NAME} nor ${BATCH_FETCH_TOOL_NAME} is registered. Install them with: ` +
+  "pi install npm:pi-smart-fetch";
+
+// Whether this session can open a result link at all. Drives the startup warning, nothing else.
+export function hasFetchTools(toolNames: readonly string[]): boolean {
+  return toolNames.includes(FETCH_TOOL_NAME) || toolNames.includes(BATCH_FETCH_TOOL_NAME);
 }
 
 export default function piSmartWebSearch(api: ExtensionAPI): void {
+  // Checked at session start rather than on load, because by then every extension has registered
+  // its tools and the order they loaded in no longer matters.
+  api.on("session_start", (_event, ctx) => {
+    if (!hasFetchTools(api.getAllTools().map((tool) => tool.name))) {
+      ctx.ui.notify(MISSING_FETCH_WARNING, "warning");
+    }
+  });
+
   api.registerTool<typeof searchParametersSchema, WebSearchDetails>({
     name: "web_search",
     label: "web_search",
     description:
-      "Search the web. Call this whenever current or external information would change your answer -- " +
-      "latest versions, APIs, prices, dates, events, or anything you can't verify from " +
-      "memory. Returns ranked result pages to follow up on.",
-    promptSnippet: "web_search(searches: string[]): batch web search; returns ranked result pages",
+      "Search the web and return each query's results as readable markdown -- title, URL and snippet " +
+      "per result -- followed by a summary of every result link, to open with " +
+      `${FETCH_TOOL_NAME} (a single page) or ${BATCH_FETCH_TOOL_NAME} (two or three). Call this ` +
+      "whenever the answer depends on information that changes over time: latest versions, APIs, " +
+      "prices, dates, events, release notes. Memory of these is often stale even when it feels certain.",
+    promptSnippet: "Search the web for current or external information",
     promptGuidelines: [
-      "Use web_search to find sources -- pass a few focused queries to cover a topic from multiple angles.",
+      "Use web_search when current or external information would change the answer, then " +
+        `${FETCH_TOOL_NAME} or ${BATCH_FETCH_TOOL_NAME} to open the few most relevant links it returns.`,
+      "Match the number of web_search queries to the question: one for a narrow lookup, more only when the " +
+        "extra angles would change the answer.",
     ],
     parameters: searchParametersSchema,
 
-    // The one-line "web_search N queries" shown the instant the call starts.
+    // The one-line row shown the instant the call starts.
     renderCall(args, theme) {
       const queryCount = args.searches.length;
       return new Text(
@@ -465,60 +386,70 @@ export default function piSmartWebSearch(api: ExtensionAPI): void {
     },
 
     async execute(_toolCallId, params, _signal, onUpdate, ctx) {
-      const { searchUrlTemplate, maxCharsPerQuery } = loadSettings(ctx.cwd);
+      const resultsPerQuery = loadResultsPerQuery(ctx.cwd);
 
-      const searches = params.searches.slice(0, MAX_QUERIES);
-      const dropped = params.searches.length - searches.length;
-
-      // Start every query as "queued"; we update each one as it runs.
-      const progressByQuery: QueryProgress[] = searches.map((query) => ({
-        query: query,
+      const progressByQuery: QueryProgress[] = params.searches.map((query) => ({
+        query,
         status: "queued",
         result: undefined,
       }));
 
-      // Push the current progress to pi's UI so the card animates live.
-      const reportProgress = () =>
-        onUpdate?.({ content: [], details: { progressByQuery, dropped } });
+      // Pushing progress on every change is what animates the card.
+      const reportProgress = () => onUpdate?.({ content: [], details: { progressByQuery } });
       reportProgress();
 
-      // Serial by construction; the per-fetch throttle handles rate limiting.
-      for (let index = 0; index < searches.length; index++) {
-        const query = searches[index];
-        const entry = progressByQuery[index];
-        if (query === undefined || entry === undefined) continue;
-
+      // One query at a time, so waitBeforeNextFetch actually spaces the requests out.
+      for (const entry of progressByQuery) {
         entry.status = "loading";
         reportProgress();
 
-        entry.result = await fetchReadablePage(buildSearchUrl(searchUrlTemplate, query));
+        entry.result = await fetchReadablePage(buildSearchUrl(entry.query), resultsPerQuery);
         entry.status = entry.result.ok ? "done" : "error";
         reportProgress();
       }
 
       return {
-        content: [
-          {
-            type: "text",
-            text: formatResultsForModel(progressByQuery, maxCharsPerQuery, searchUrlTemplate),
-          },
-        ],
-        details: { progressByQuery, dropped },
+        content: [{ type: "text", text: renderToolResult(progressByQuery) }],
+        details: { progressByQuery },
       };
     },
 
-    // Width-aware (returns a `render(width)` component) so the [ status ] badge can right-align,
-    // the same approach batch_web_fetch uses.
-    renderResult(result, _opts, theme) {
-      const { progressByQuery, dropped = 0 } = result.details;
-      const text = new Text("", 0, 0);
+    // The progress card, and underneath it -- once expanded with Ctrl+O -- the exact markdown
+    // the model was given. The card stays either way, so expanding adds detail rather than
+    // swapping the view out. Width-aware so the badge can right-align against the terminal
+    // edge.
+    renderResult(result, opts, theme) {
+      const answer = result.content.map((block) => ("text" in block ? block.text : "")).join("");
+      const container = new Container();
+      const card = new Text("", 0, 0);
+
+      // The card is the only part that depends on the width, so it is the only part rebuilt on
+      // resize. Everything below it is added once.
+      container.addChild(card);
+      container.addChild(new Spacer(1));
+      container.addChild(
+        opts.expanded && answer
+          ? // The tool result is markdown, so headings, links and the ordered list are rendered
+            // as themselves, and a link becomes one the terminal can open.
+            new Markdown(answer, 0, 0, getMarkdownTheme())
+          : // The closing bracket is styled on its own, as pi's built-in tools style theirs:
+            // `keyHint` ends with a reset, so a colour wrapped around the whole line stops there.
+            new Text(
+              theme.fg("muted", "... (") +
+                keyHint("app.tools.expand", "to show results") +
+                theme.fg("muted", ")"),
+              0,
+              0,
+            ),
+      );
+
       return {
         render(width) {
-          text.setText(renderProgressCard(progressByQuery, dropped, theme, width));
-          return text.render(width);
+          card.setText(renderProgressCard(result.details.progressByQuery, theme, width));
+          return container.render(width);
         },
         invalidate() {
-          text.invalidate();
+          container.invalidate();
         },
       };
     },
