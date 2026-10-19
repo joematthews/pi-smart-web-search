@@ -54,14 +54,26 @@ rendered: headings styled, results numbered, and every link openable from the te
 
 ## Settings
 
-One optional setting, in `~/.pi/agent/settings.json` or a project's `.pi/settings.json`:
+Two optional settings, in `~/.pi/agent/settings.json` or a project's `.pi/settings.json`:
 
 ```json
-{ "smartWebSearch": { "resultsPerQuery": 5 } }
+{ "smartWebSearch": { "resultsPerQuery": 5, "searchSource": "duckduckgo" } }
 ```
 
 How many results to keep per query, 1 to 10, default 5. It trades tokens against coverage: against a
 live results page, 10 results cost about 1,400 tokens per query, 5 about 700, and 3 about 460.
+
+Which search source to use, `duckduckgo` (the default) or `youcom`. DuckDuckGo reads its no-JavaScript
+HTML endpoint and needs no key. `youcom` calls the You.com Agents API -- keyless by default (100
+searches/day per IP), with `YDC_API_KEY` as an optional upgrade to the keyed endpoint for a higher
+rate limit. The two return the same shape, so the tool reads identically either way.
+
+```json
+{ "smartWebSearch": { "searchSource": "youcom" } }
+```
+
+Set `YDC_API_KEY` to your You.com API key to use the keyed endpoint instead of the keyless one (the
+keyless endpoint is the default when `searchSource` is `youcom`).
 
 ## Development
 

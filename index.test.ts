@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,13 +25,16 @@ import { fetch } from "wreq-js";
 import piSmartWebSearch, {
   buildSearchUrl,
   fetchReadablePage,
+  fetchYoucomPage,
   hasFetchTools,
   keepFirstResults,
   loadResultsPerQuery,
+  loadSearchSource,
   formatStatusBadge,
   renderProgressCard,
   readResultLinks,
   DEFAULT_RESULTS_PER_QUERY,
+  DEFAULT_SEARCH_SOURCE,
   MAX_RESULTS_PER_QUERY,
   MIN_RESULTS_PER_QUERY,
   type WebSearchDetails,
@@ -192,6 +195,12 @@ describe("hasFetchTools", () => {
 const mockFetch = vi.mocked(fetch);
 type FetchResponse = Awaited<ReturnType<typeof fetch>>;
 
+// fetchYoucomPage calls `globalThis.fetch` (the You.com API); fetchReadablePage calls the
+// wreq-js `fetch` above (DuckDuckGo). The two are separate mocks so the DDG tests and the
+// You.com tests do not share state.
+vi.stubGlobal("fetch", vi.fn());
+const mockGlobalFetch = vi.mocked(globalThis.fetch);
+
 function response(opts: {
   status?: number;
   ok?: boolean;
@@ -325,6 +334,162 @@ describe("loadResultsPerQuery", () => {
   });
 });
 
+// --- loadSearchSource, against real temp directories ---
+
+/** Load searchSource for a throwaway project whose settings.json holds the given contents. */
+function loadSourceFrom(settingsJson: string) {
+  const dir = mkdtempSync(join(tmpdir(), "pi-sws-src-"));
+  mkdirSync(join(dir, ".pi"));
+  writeFileSync(join(dir, ".pi", "settings.json"), settingsJson);
+  try {
+    return loadSearchSource(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** The common case: a well-formed file configuring only `smartWebSearch`. */
+const loadSourceWith = (smartWebSearch: unknown) =>
+  loadSourceFrom(JSON.stringify({ smartWebSearch }));
+
+describe("loadSearchSource", () => {
+  it("falls back to the default when the project has no settings file", () => {
+    expect(loadSearchSource(join(tmpdir(), "pi-sws-nonexistent-project"))).toBe(
+      DEFAULT_SEARCH_SOURCE,
+    );
+  });
+
+  it("reads a configured youcom source", () => {
+    expect(loadSourceWith({ searchSource: "youcom" })).toBe("youcom");
+  });
+
+  it("reads a configured duckduckgo source", () => {
+    expect(loadSourceWith({ searchSource: "duckduckgo" })).toBe("duckduckgo");
+  });
+
+  it("ignores an unknown source and keeps the default", () => {
+    expect(loadSourceWith({ searchSource: "google" })).toBe(DEFAULT_SEARCH_SOURCE);
+  });
+
+  it("ignores a non-string source", () => {
+    expect(loadSourceWith({ searchSource: 5 })).toBe(DEFAULT_SEARCH_SOURCE);
+  });
+
+  it("falls back to the default when the settings file is not valid JSON", () => {
+    expect(loadSourceFrom("{ not json")).toBe(DEFAULT_SEARCH_SOURCE);
+  });
+});
+
+// --- fetchYoucomPage, against a mocked global fetch ---
+
+/** A fetch Response carrying You.com JSON, shaped the way fetchYoucomPage reads it. */
+function youcomResponse(opts: {
+  ok?: boolean;
+  status?: number;
+  statusText?: string;
+  data: unknown;
+}) {
+  return {
+    ok: opts.ok ?? true,
+    status: opts.status ?? 200,
+    statusText: opts.statusText ?? "OK",
+    json: () => Promise.resolve(opts.data),
+  } as unknown as Response;
+}
+
+describe("fetchYoucomPage", () => {
+  beforeEach(() => {
+    mockGlobalFetch.mockReset();
+    delete process.env.YDC_API_KEY;
+    mockGlobalFetch.mockResolvedValue(
+      youcomResponse({
+        data: { results: { web: [{ title: "T", url: "https://t.example", snippets: ["s"] }] } },
+      }),
+    );
+  });
+  afterEach(() => {
+    mockGlobalFetch.mockReset();
+    delete process.env.YDC_API_KEY;
+  });
+
+  it("returns a PageFetchResult with links and readable text on success", async () => {
+    const result = await fetchYoucomPage("query", 5);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.links).toEqual([{ title: "T", url: "https://t.example" }]);
+    expect(result.readableText).toContain("## T");
+    expect(result.readableText).toContain("https://t.example");
+  });
+
+  it("takes the keyless path when YDC_API_KEY is unset", async () => {
+    // The keyless path sends a GET (no POST body); the keyed path sends `method: "POST".
+    // Returning different data for each lets the test tell which path ran without reading
+    // the call arguments back out of the mock.
+    mockGlobalFetch.mockImplementation((_input, init) => {
+      if (init?.method === "POST") {
+        return Promise.resolve(
+          youcomResponse({ data: { results: [{ title: "keyed", url: "https://k.example" }] } }),
+        );
+      }
+      return Promise.resolve(
+        youcomResponse({
+          data: { results: { web: [{ title: "keyless", url: "https://kl.example" }] } },
+        }),
+      );
+    });
+    const result = await fetchYoucomPage("q", 5);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.links[0]?.title).toBe("keyless");
+  });
+
+  it("takes the keyed POST path when YDC_API_KEY is set", async () => {
+    const testKey = "test-key";
+    process.env.YDC_API_KEY = testKey;
+    mockGlobalFetch.mockImplementation((_input, init) => {
+      if (init?.method === "POST") {
+        return Promise.resolve(
+          youcomResponse({ data: { results: [{ title: "keyed", url: "https://k.example" }] } }),
+        );
+      }
+      return Promise.resolve(
+        youcomResponse({
+          data: { results: { web: [{ title: "keyless", url: "https://kl.example" }] } },
+        }),
+      );
+    });
+    const result = await fetchYoucomPage("q", 5);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.links[0]?.title).toBe("keyed");
+  });
+
+  it("reports a non-2xx status as an error", async () => {
+    mockGlobalFetch.mockResolvedValue(
+      youcomResponse({ ok: false, status: 429, statusText: "Too Many Requests", data: {} }),
+    );
+    const result = await fetchYoucomPage("q", 5);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe("HTTP 429 Too Many Requests");
+  });
+
+  it("returns an error result when no result carries a usable URL", async () => {
+    mockGlobalFetch.mockResolvedValue(
+      youcomResponse({ data: { results: { web: [{ title: "no url" }] } } }),
+    );
+    const result = await fetchYoucomPage("q", 5);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/no results with a usable URL/);
+  });
+
+  it("never throws -- a network failure comes back as an error result", async () => {
+    mockGlobalFetch.mockRejectedValue(new Error("network down"));
+    const result = await fetchYoucomPage("q", 5);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe("network down");
+  });
+});
+
 // --- The tool itself, registered against a stand-in for pi ---
 
 /**
@@ -421,6 +586,37 @@ describe("web_search execute", () => {
     const details = out.details as WebSearchDetails;
     expect(details.progressByQuery).toHaveLength(1);
     expect(details.progressByQuery?.[0]?.status).toBe("done");
+  });
+
+  it("uses the You.com source when settings.json asks for it", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "pi-sws-youcom-exec-"));
+    mkdirSync(join(projectDir, ".pi"));
+    writeFileSync(
+      join(projectDir, ".pi", "settings.json"),
+      JSON.stringify({ smartWebSearch: { searchSource: "youcom" } }),
+    );
+
+    delete process.env.YDC_API_KEY;
+    mockGlobalFetch.mockResolvedValue(
+      youcomResponse({
+        data: { results: [{ title: "You result", url: "https://you.example", snippet: "s" }] },
+      }),
+    );
+    try {
+      const { tool } = registerExtension();
+      const out = await tool.execute("call-youcom", { searches: ["q"] }, undefined, undefined, {
+        cwd: projectDir,
+      } as never);
+
+      const text = (out.content[0] as { text: string }).text;
+      expect(text).toContain("1. You result");
+      expect(text).toContain("https://you.example");
+      // The DuckDuckGo fetch must not have run for the youcom source.
+      expect(mockFetch).not.toHaveBeenCalled();
+    } finally {
+      mockGlobalFetch.mockReset();
+      rmSync(projectDir, { recursive: true, force: true });
+    }
   });
 });
 

@@ -36,6 +36,7 @@ import {
   type QueryStatus,
   type SearchResultLink,
 } from "./markdown.ts";
+import { buildYoucomPageResult, normalizeYoucomResults } from "./youcom.ts";
 
 // =============================================================================
 // Reading a page off the web
@@ -169,6 +170,111 @@ export const SEARCH_URL_TEMPLATE = "https://html.duckduckgo.com/html/?q={query}"
 
 export function buildSearchUrl(query: string): string {
   return SEARCH_URL_TEMPLATE.replace("{query}", encodeURIComponent(query));
+}
+
+// =============================================================================
+// Choosing a search source
+//
+// DuckDuckGo's HTML endpoint is the default and needs no key. You.com's Agents
+// API is an opt-in alternative: keyless by default (100 searches/day per IP), with
+// YDC_API_KEY as an optional upgrade to the keyed endpoint. The two return the
+// same PageFetchResult shape, so the rest of the tool does not know which ran.
+// =============================================================================
+
+export type SearchSource = "duckduckgo" | "youcom";
+
+export const DEFAULT_SEARCH_SOURCE: SearchSource = "duckduckgo";
+
+// The You.com Agents API. Keyless by default (GET, no key); when YDC_API_KEY is set, the
+// keyed POST endpoint is used instead. The User-Agent attributes the traffic to this
+// integration, which is how the keyless tier is attributed (there is no API key to do it).
+const YOUCOM_AGENTS_URL = "https://api.you.com/v1/agents/search";
+const YOUCOM_USER_AGENT = "youdotcom-integration/joematthews-pi-smart-web-search";
+
+// Read `smartWebSearch.searchSource` from settings.json: the global file first, then the
+// project one, which wins. A value other than "duckduckgo" or "youcom" leaves the default in
+// place, so an unknown value never silently breaks the tool.
+//
+//   "smartWebSearch": { "searchSource": "youcom" }
+export function loadSearchSource(projectDir: string): SearchSource {
+  const globalFile = join(getAgentDir(), "settings.json"); // ~/.pi/agent/settings.json
+  const projectFile = join(projectDir, ".pi", "settings.json");
+
+  let source: SearchSource = DEFAULT_SEARCH_SOURCE;
+  for (const file of [globalFile, projectFile]) {
+    const configured = readSearchSourceFrom(file);
+    if (configured !== undefined) source = configured;
+  }
+
+  return source;
+}
+
+interface SearchSourceSettings {
+  smartWebSearch?: { searchSource?: unknown };
+}
+
+function readSearchSourceFrom(file: string): SearchSource | undefined {
+  let settings: SearchSourceSettings;
+  try {
+    settings = JSON.parse(readFileSync(file, "utf-8")) as SearchSourceSettings;
+  } catch {
+    return undefined; // No such file, or its contents are not valid JSON.
+  }
+
+  const configured = settings.smartWebSearch?.searchSource;
+  if (configured === "duckduckgo" || configured === "youcom") return configured;
+  return undefined;
+}
+
+// Fetch results from the You.com Agents API and return them as the same PageFetchResult a
+// DuckDuckGo page yields. Never throws -- failures return `{ ok: false }`, the same way
+// fetchReadablePage does, so the progress card reports the error rather than crashing.
+export async function fetchYoucomPage(
+  query: string,
+  resultsPerQuery: number,
+): Promise<PageFetchResult> {
+  const requestedUrl = YOUCOM_AGENTS_URL;
+  try {
+    const apiKey = process.env.YDC_API_KEY;
+    let response: Response;
+    if (apiKey) {
+      response = await globalThis.fetch(YOUCOM_AGENTS_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": apiKey,
+          "User-Agent": YOUCOM_USER_AGENT,
+        },
+        body: JSON.stringify({ query, max_results: resultsPerQuery }),
+        signal: AbortSignal.timeout(15_000),
+      });
+    } else {
+      const url =
+        `${YOUCOM_AGENTS_URL}?query=${encodeURIComponent(query)}` +
+        `&max_results=${resultsPerQuery}`;
+      response = await globalThis.fetch(url, {
+        headers: { "User-Agent": YOUCOM_USER_AGENT },
+        signal: AbortSignal.timeout(15_000),
+      });
+    }
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        requestedUrl,
+        error: `HTTP ${response.status} ${response.statusText}`,
+      };
+    }
+
+    const data: unknown = await response.json();
+    return buildYoucomPageResult(normalizeYoucomResults(data), resultsPerQuery, requestedUrl);
+  } catch (caught) {
+    return {
+      ok: false,
+      requestedUrl,
+      error: caught instanceof Error ? caught.message : String(caught),
+    };
+  }
 }
 
 // How many results to keep per query. DDG returns 10 per page, so 10 is the maximum. Fewer
@@ -387,6 +493,7 @@ export default function piSmartWebSearch(api: ExtensionAPI): void {
 
     async execute(_toolCallId, params, _signal, onUpdate, ctx) {
       const resultsPerQuery = loadResultsPerQuery(ctx.cwd);
+      const searchSource = loadSearchSource(ctx.cwd);
 
       const progressByQuery: QueryProgress[] = params.searches.map((query) => ({
         query,
@@ -403,7 +510,10 @@ export default function piSmartWebSearch(api: ExtensionAPI): void {
         entry.status = "loading";
         reportProgress();
 
-        entry.result = await fetchReadablePage(buildSearchUrl(entry.query), resultsPerQuery);
+        entry.result =
+          searchSource === "youcom"
+            ? await fetchYoucomPage(entry.query, resultsPerQuery)
+            : await fetchReadablePage(buildSearchUrl(entry.query), resultsPerQuery);
         entry.status = entry.result.ok ? "done" : "error";
         reportProgress();
       }
